@@ -8,6 +8,26 @@ export interface Namespace {
   [key: string]: unknown;
 }
 
+export interface IpPrefixSet {
+  metadata: {
+    name: string;
+    namespace: string;
+    labels?: Record<string, string>;
+    description?: string;
+    disable?: boolean;
+  };
+  spec: {
+    ipv4_prefixes?: Array<{
+      ipv4_prefix: string;
+      description?: string;
+    }>;
+    ipv6_prefixes?: Array<{
+      ipv6_prefix: string;
+      description?: string;
+    }>;
+  };
+}
+
 export interface LoadBalancer {
   name: string;
   namespace?: string;
@@ -735,6 +755,10 @@ export interface ServicePolicyRule {
     };
     asn_list?: {
       as_numbers?: number[];
+    };
+    ip_matcher?: {
+      invert_matcher?: boolean;
+      prefix_sets?: ObjectRef[];
     };
     asn_matcher?: {
       asn_sets?: { name?: string; namespace?: string }[];

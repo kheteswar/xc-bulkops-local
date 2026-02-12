@@ -1,10 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import type { IncomingMessage, ServerResponse } from 'http';
-import https from 'https';
+import dns from 'node:dns';
+import http from 'node:http';
+import https from 'node:https';
+import zlib from 'node:zlib';
 
 /**
  * Make HTTPS request to F5 XC API
+ * Used by the generic /api/proxy endpoint
  */
 function makeF5XCRequest(options: https.RequestOptions, postData?: string): Promise<{
   statusCode: number;
@@ -36,10 +40,10 @@ function makeF5XCRequest(options: https.RequestOptions, postData?: string): Prom
 }
 
 /**
- * Handle proxy requests to F5 XC API
+ * Handle generic proxy requests to F5 XC API
+ * Used by WAF Scanner, Security Auditor, etc.
  */
 async function handleProxyRequest(req: IncomingMessage, res: ServerResponse) {
-  // Read request body
   let body = '';
   for await (const chunk of req) {
     body += chunk;
@@ -50,58 +54,37 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse) {
 
     if (!tenant || !token || !endpoint) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing required fields: tenant, token, endpoint' }));
+      res.end(JSON.stringify({ error: 'Missing tenant, token, or endpoint' }));
       return;
     }
 
-    const hostname = `${tenant}.console.ves.volterra.io`;
-    console.log(`[F5 XC Proxy] ${method} https://${hostname}${endpoint}`);
+    const host = `${tenant}.console.ves.volterra.io`;
+    // Don't add /api prefix if endpoint already starts with it
+    const path = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
 
-    const postData = requestBody ? JSON.stringify(requestBody) : undefined;
-    
     const options: https.RequestOptions = {
-      hostname,
-      port: 443,
-      path: endpoint,
-      method: method.toUpperCase(),
+      hostname: host,
+      path: path,
+      method: method,
       headers: {
         'Authorization': `APIToken ${token}`,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
-        ...(postData && { 'Content-Length': Buffer.byteLength(postData) }),
       },
     };
 
-    const response = await makeF5XCRequest(options, postData);
-    
-    let responseData;
-    try {
-      responseData = JSON.parse(response.body);
-    } catch {
-      responseData = { message: response.body };
-    }
+    const response = await makeF5XCRequest(options, requestBody ? JSON.stringify(requestBody) : undefined);
 
-    console.log(`[F5 XC Proxy] Response: ${response.statusCode}`);
-
-    res.writeHead(response.statusCode >= 400 ? response.statusCode : 200, {
+    res.writeHead(response.statusCode, { 
       'Content-Type': 'application/json',
+      'Access-Control-Allow-Origin': '*' 
     });
+    res.end(response.body);
 
-    if (response.statusCode >= 400) {
-      res.end(JSON.stringify({
-        error: responseData.message || responseData.error || `API Error: ${response.statusCode}`,
-        details: responseData,
-      }));
-    } else {
-      res.end(JSON.stringify(responseData));
-    }
-
-  } catch (error) {
-    console.error('[F5 XC Proxy] Error:', error);
+  } catch (error: any) {
+    console.error('Proxy error:', error);
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ 
-      error: error instanceof Error ? error.message : 'Proxy request failed' 
-    }));
+    res.end(JSON.stringify({ error: error.message }));
   }
 }
 
@@ -111,12 +94,264 @@ export default defineConfig({
     {
       name: 'f5xc-proxy',
       configureServer(server) {
-        // Handle /api/proxy requests
+
+        // -------------------------------------------------------------
+        // 1. Sanity Checker Proxy (Specific Route)
+        //    Handles "Live vs Spoof" requests with custom DNS logic
+        // -------------------------------------------------------------
+        server.middlewares.use('/api/proxy/request', (req, res, next) => {
+          if (req.method !== 'POST') return next();
+
+          let body = '';
+          req.on('data', chunk => body += chunk);
+          req.on('end', async () => {
+            try {
+              if (!body) throw new Error('Empty request body');
+              const parsed = JSON.parse(body);
+              
+              // Destructure and validate
+              const { url: targetUrl, method = 'GET', headers = {}, targetIp } = parsed;
+              
+              if (!targetUrl) throw new Error('Missing URL parameter');
+
+              console.log(`[SanityProxy] ${method} ${targetUrl}`);
+              console.log(`[SanityProxy] Raw targetIp:`, targetIp, `(type: ${typeof targetIp})`);
+
+              const urlObj = new URL(targetUrl);
+              const isHttps = urlObj.protocol === 'https:';
+              
+              // If we have a valid targetIp (not null, undefined, or empty), we need to spoof DNS
+              const shouldSpoof = targetIp && typeof targetIp === 'string' && targetIp.trim().length > 0;
+              
+              if (shouldSpoof) {
+                console.log(`[SanityProxy] Spoofing ${urlObj.hostname} -> ${targetIp}`);
+                
+                // For spoofed requests, we connect directly to the IP but use proper headers
+                const spoofOptions: any = {
+                  host: targetIp, // Connect to this IP
+                  hostname: targetIp,
+                  port: isHttps ? 443 : 80,
+                  path: urlObj.pathname + urlObj.search,
+                  method,
+                  headers: {
+                    ...headers,
+                    // Ensure Host header is set to the original hostname
+                    'Host': headers['Host'] || urlObj.hostname
+                  },
+                  rejectUnauthorized: false, // Allow self-signed certs
+                  servername: urlObj.hostname, // SNI for HTTPS
+                  timeout: 15000
+                };
+
+                const httpModule = isHttps ? https : http;
+                const proxyReq = httpModule.request(spoofOptions, (proxyRes) => {
+                  const chunks: Buffer[] = [];
+                  let bodySize = 0;
+                  const maxBodySize = 10 * 1024 * 1024; // 10MB limit
+
+                  // Handle compression
+                  let responseStream = proxyRes;
+                  const encoding = proxyRes.headers['content-encoding'];
+                  
+                  if (encoding === 'gzip') {
+                    responseStream = proxyRes.pipe(zlib.createGunzip());
+                  } else if (encoding === 'deflate') {
+                    responseStream = proxyRes.pipe(zlib.createInflate());
+                  } else if (encoding === 'br') {
+                    responseStream = proxyRes.pipe(zlib.createBrotliDecompress());
+                  }
+
+                  responseStream.on('data', (chunk: Buffer) => {
+                    bodySize += chunk.length;
+                    if (bodySize > maxBodySize) {
+                      proxyReq.destroy();
+                      console.error(`[SanityProxy] Response too large: ${bodySize} bytes`);
+                      return;
+                    }
+                    chunks.push(chunk);
+                  });
+
+                  responseStream.on('end', () => {
+                    const buffer = Buffer.concat(chunks);
+                    const resBody = buffer.toString('utf-8');
+                    console.log(`[SanityProxy] Spoofed response: ${proxyRes.statusCode} (${bodySize} bytes, encoding: ${encoding || 'none'})`);
+                    const responseData = {
+                      status: proxyRes.statusCode,
+                      statusText: proxyRes.statusMessage,
+                      headers: proxyRes.headers,
+                      body: resBody,
+                      connectedIp: targetIp // The IP we connected to
+                    };
+                    console.log(`[SanityProxy] Sending to frontend - connectedIp: ${responseData.connectedIp}`);
+                    res.writeHead(200, { 
+                      'Content-Type': 'application/json',
+                      'Access-Control-Allow-Origin': '*'
+                    });
+                    res.end(JSON.stringify(responseData));
+                  });
+
+                  responseStream.on('error', (err: any) => {
+                    console.error(`[SanityProxy] Decompression error:`, err.message);
+                    if (!res.headersSent) {
+                      res.writeHead(502, { 'Content-Type': 'application/json' });
+                      res.end(JSON.stringify({ error: `Decompression Error: ${err.message}` }));
+                    }
+                  });
+                });
+
+                proxyReq.on('timeout', () => {
+                  console.error(`[SanityProxy] Request timeout after 15s`);
+                  proxyReq.destroy();
+                  if (!res.headersSent) {
+                    res.writeHead(504, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Request timeout after 15 seconds' }));
+                  }
+                });
+
+                proxyReq.on('error', (err: any) => {
+                  console.error(`[SanityProxy] Spoofed Request Error:`, err.message);
+                  if (!res.headersSent) {
+                    res.writeHead(502, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: `Spoofed Connection Failed: ${err.message}` }));
+                  }
+                });
+
+                proxyReq.end();
+              } else {
+                // Live DNS request - use Google DNS resolver to bypass local /etc/hosts
+                console.log(`[SanityProxy] Live DNS request to ${targetUrl}`);
+                
+                // Use Google DNS (8.8.8.8) for resolution
+                const dnsResolver = new dns.promises.Resolver();
+                dnsResolver.setServers(['8.8.8.8', '8.8.4.4']); // Google DNS servers
+                
+                // Resolve the hostname using Google DNS
+                let resolvedIp: string;
+                try {
+                  const addresses = await dnsResolver.resolve4(urlObj.hostname);
+                  resolvedIp = addresses[0];
+                  console.log(`[SanityProxy] Google DNS resolved ${urlObj.hostname} -> ${resolvedIp}`);
+                } catch (dnsError: any) {
+                  console.error(`[SanityProxy] DNS resolution failed:`, dnsError.message);
+                  throw new Error(`DNS resolution failed: ${dnsError.message}`);
+                }
+                
+                // Now connect to the resolved IP
+                const liveOptions: any = {
+                  host: resolvedIp, // Connect to the Google DNS resolved IP
+                  hostname: resolvedIp,
+                  port: isHttps ? 443 : 80,
+                  path: urlObj.pathname + urlObj.search,
+                  method,
+                  headers: {
+                    ...headers,
+                    'Host': urlObj.hostname // Keep original hostname in Host header
+                  },
+                  servername: urlObj.hostname, // SNI for HTTPS
+                  rejectUnauthorized: false,
+                  timeout: 15000
+                };
+
+                const httpModule = isHttps ? https : http;
+                const proxyReq = httpModule.request(liveOptions, (proxyRes) => {
+                  // Use the resolved IP as the connected IP
+                  const connectedIp = resolvedIp;
+                  
+                  const chunks: Buffer[] = [];
+                  let bodySize = 0;
+                  const maxBodySize = 10 * 1024 * 1024; // 10MB limit
+
+                  // Handle compression
+                  let responseStream = proxyRes;
+                  const encoding = proxyRes.headers['content-encoding'];
+                  
+                  if (encoding === 'gzip') {
+                    responseStream = proxyRes.pipe(zlib.createGunzip());
+                  } else if (encoding === 'deflate') {
+                    responseStream = proxyRes.pipe(zlib.createInflate());
+                  } else if (encoding === 'br') {
+                    responseStream = proxyRes.pipe(zlib.createBrotliDecompress());
+                  }
+
+                  responseStream.on('data', (chunk: Buffer) => {
+                    bodySize += chunk.length;
+                    if (bodySize > maxBodySize) {
+                      proxyReq.destroy();
+                      console.error(`[SanityProxy] Response too large: ${bodySize} bytes`);
+                      return;
+                    }
+                    chunks.push(chunk);
+                  });
+
+                  responseStream.on('end', () => {
+                    const buffer = Buffer.concat(chunks);
+                    const resBody = buffer.toString('utf-8');
+                    console.log(`[SanityProxy] Live response: ${proxyRes.statusCode} (${bodySize} bytes, encoding: ${encoding || 'none'}, IP: ${connectedIp})`);
+                    const responseData = {
+                      status: proxyRes.statusCode,
+                      statusText: proxyRes.statusMessage,
+                      headers: proxyRes.headers,
+                      body: resBody,
+                      connectedIp: connectedIp // The actual IP we connected to
+                    };
+                    console.log(`[SanityProxy] Sending to frontend - connectedIp: ${responseData.connectedIp}`);
+                    res.writeHead(200, { 
+                      'Content-Type': 'application/json',
+                      'Access-Control-Allow-Origin': '*'
+                    });
+                    res.end(JSON.stringify(responseData));
+                  });
+
+                  responseStream.on('error', (err: any) => {
+                    console.error(`[SanityProxy] Decompression error:`, err.message);
+                    if (!res.headersSent) {
+                      res.writeHead(502, { 'Content-Type': 'application/json' });
+                      res.end(JSON.stringify({ error: `Decompression Error: ${err.message}` }));
+                    }
+                  });
+                });
+
+                proxyReq.on('timeout', () => {
+                  console.error(`[SanityProxy] Request timeout after 15s`);
+                  proxyReq.destroy();
+                  if (!res.headersSent) {
+                    res.writeHead(504, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: 'Request timeout after 15 seconds' }));
+                  }
+                });
+
+                proxyReq.on('error', (err: any) => {
+                  console.error(`[SanityProxy] Live Request Error:`, err.message);
+                  if (!res.headersSent) {
+                    res.writeHead(502, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ error: `Live Connection Failed: ${err.message}` }));
+                  }
+                });
+
+                proxyReq.end();
+              }
+            } catch (e: any) {
+              console.error(`[SanityProxy] Parse Error:`, e.message);
+              res.writeHead(400, { 'Content-Type': 'application/json' });
+              res.end(JSON.stringify({ error: `Invalid Request: ${e.message}` }));
+            }
+          });
+        });
+
+        // -------------------------------------------------------------
+        // 2. Generic F5 XC Proxy (General Route)
+        //    Handles standard API calls for other tools
+        // -------------------------------------------------------------
         server.middlewares.use('/api/proxy', (req, res, next) => {
+          // IMPORTANT: If the URL matches the specific route above, do NOT process it here.
+          // Note: req.originalUrl includes the full path, req.url is relative to mount point
+          if (req.originalUrl && req.originalUrl.includes('/api/proxy/request')) {
+            return next();
+          }
+
           if (req.method === 'POST') {
             handleProxyRequest(req, res);
           } else if (req.method === 'OPTIONS') {
-            // Handle CORS preflight
             res.writeHead(200, {
               'Access-Control-Allow-Origin': '*',
               'Access-Control-Allow-Methods': 'POST, OPTIONS',
@@ -128,13 +363,16 @@ export default defineConfig({
           }
         });
 
-        // Health check endpoint
+        // -------------------------------------------------------------
+        // 3. Health Check
+        // -------------------------------------------------------------
         server.middlewares.use('/api/health', (req, res) => {
           res.writeHead(200, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
         });
 
-        console.log('\n  🔌 F5 XC API Proxy enabled at /api/proxy\n');
+        console.log('\n 🔌 F5 XC API Proxy enabled at /api/proxy');
+        console.log(' 🔌 Sanity Checker Proxy enabled at /api/proxy/request\n');
       },
     },
   ],

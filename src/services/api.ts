@@ -1,4 +1,4 @@
-import type { Credentials, Namespace, LoadBalancer, WAFPolicy, OriginPool, AppType, AppSetting, VirtualSite, UserIdentificationPolicy, AlertReceiver, AlertPolicy, CDNLoadBalancer, CDNCacheRule } from '../types';
+import type { Credentials, Namespace, LoadBalancer, WAFPolicy, OriginPool, AppType, AppSetting, VirtualSite, UserIdentificationPolicy, AlertReceiver, AlertPolicy, CDNLoadBalancer, CDNCacheRule, IpPrefixSet, ServicePolicy } from '../types';
 
 // Proxy endpoint - same server, no need for separate URL
 const PROXY_ENDPOINT = '/api/proxy';
@@ -44,41 +44,29 @@ class F5XCApiClient {
       }),
     });
 
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      throw new Error(data.error || data.message || `API Error: ${response.status}`);
+    // Attempt to parse JSON response
+    let data;
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.indexOf('application/json') !== -1) {
+      data = await response.json();
+    } else {
+      // Handle non-JSON responses (usually generic errors)
+      if (!response.ok) {
+         throw new Error(`API Error: ${response.status} ${response.statusText}`);
+      }
+      return {} as T; 
     }
 
-    return data as T;
-  }
-
-  // Static method for cross-tenant requests (doesn't use instance tenant/token)
-  static async proxyRequestStatic<T>(
-    tenant: string,
-    apiToken: string,
-    endpoint: string,
-    method = 'GET',
-    body?: unknown
-  ): Promise<T> {
-    const response = await fetch(PROXY_ENDPOINT, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        tenant,
-        token: apiToken,
-        endpoint,
-        method,
-        body,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok || data.error) {
-      throw new Error(data.error || data.message || `API Error: ${response.status}`);
+    // Check for HTTP errors or API-specific error fields
+    if (!response.ok) {
+      // Prioritize specific API error message
+      const errorMessage = data.message || data.error || `API Error: ${response.statusText}`;
+      throw new Error(errorMessage);
+    }
+    
+    // Some APIs return 200 OK but contain an error field
+    if (data.error) {
+      throw new Error(data.error);
     }
 
     return data as T;
@@ -92,10 +80,20 @@ class F5XCApiClient {
     return this.proxyRequest<T>(path, 'POST', body);
   }
 
+  async put<T>(path: string, body: unknown): Promise<T> {
+    return this.proxyRequest<T>(path, 'PUT', body);
+  }
+
+  async delete<T>(path: string): Promise<T> {
+    return this.proxyRequest<T>(path, 'DELETE');
+  }
+
+  // --- Namespace APIs ---
   async getNamespaces(): Promise<{ items: Namespace[] }> {
     return this.get('/api/web/namespaces');
   }
 
+  // --- Load Balancer APIs ---
   async getLoadBalancers(namespace: string): Promise<{ items: LoadBalancer[] }> {
     return this.get(`/api/config/namespaces/${namespace}/http_loadbalancers`);
   }
@@ -104,74 +102,43 @@ class F5XCApiClient {
     return this.get(`/api/config/namespaces/${namespace}/http_loadbalancers/${name}`);
   }
 
-  async getWAFPolicy(namespace: string, name: string): Promise<WAFPolicy> {
-    return this.get(`/api/config/namespaces/${namespace}/app_firewalls/${name}`);
+  // --- WAF Policy APIs ---
+  async getWAFPolicies(namespace: string): Promise<{ items: WAFPolicy[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/app_firewalls`);
+  }
+
+  // --- Origin Pool APIs ---
+  async getOriginPools(namespace: string): Promise<{ items: OriginPool[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/origin_pools`);
   }
 
   async getOriginPool(namespace: string, name: string): Promise<OriginPool> {
     return this.get(`/api/config/namespaces/${namespace}/origin_pools/${name}`);
   }
 
-  async getHealthCheck(namespace: string, name: string): Promise<unknown> {
-    return this.get(`/api/config/namespaces/${namespace}/healthchecks/${name}`);
+  // --- App Types APIs ---
+  async getAppTypes(namespace: string): Promise<{ items: AppType[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/app_types`);
   }
 
-  async getAppTypes(): Promise<{ items: AppType[] }> {
-    return this.get('/api/config/namespaces/shared/app_types');
-  }
-
-  async getAppType(name: string): Promise<AppType> {
-    return this.get(`/api/config/namespaces/shared/app_types/${name}`);
-  }
-
+  // --- App Settings APIs ---
   async getAppSettings(namespace: string): Promise<{ items: AppSetting[] }> {
     return this.get(`/api/config/namespaces/${namespace}/app_settings`);
   }
 
-  async getAppSetting(namespace: string, name: string): Promise<AppSetting> {
-    return this.get(`/api/config/namespaces/${namespace}/app_settings/${name}`);
+  // --- Virtual Site APIs ---
+  async getVirtualSites(namespace: string): Promise<{ items: VirtualSite[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/virtual_sites`);
   }
 
-  async getVirtualSite(namespace: string, name: string): Promise<VirtualSite> {
-    return this.get(`/api/config/namespaces/${namespace}/virtual_sites/${name}`);
+  // --- User Identification APIs ---
+  async getUserIdentificationPolicies(namespace: string): Promise<{ items: UserIdentificationPolicy[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/user_identification_policys`);
   }
 
-  async getUserIdentificationPolicy(namespace: string, name: string): Promise<UserIdentificationPolicy> {
-    return this.get(`/api/config/namespaces/${namespace}/user_identifications/${name}`);
-  }
-
-  async getServicePolicy(namespace: string, policyName: string): Promise<unknown> {
-  const primaryPath =
-    `/api/config/namespaces/${namespace}/service_policys/${policyName}`;
-
-  try {
-    return await this.get(primaryPath);
-  } catch (err: any) {
-    const isSharedNamespace = namespace === 'shared';
-    const isAllowAllPolicy = policyName === 'ves-io-allow-all';
-
-    const msg = err?.message ? String(err.message) : '';
-    const looksLike404 =
-      msg.includes('404') ||
-      msg.toLowerCase().includes('does not exist') ||
-      msg.toLowerCase().includes('not exist');
-
-    if (isSharedNamespace && isAllowAllPolicy && looksLike404) {
-      return this.get(
-        `/api/config/namespaces/ves-io-shared/service_policys/${policyName}`
-      );
-    }
-
-    throw err;
-  }
-}
   // --- CDN APIs ---
-  async getCDNs(namespace: string): Promise<{ items: CDNLoadBalancer[] }> {
+  async getCDNLoadBalancers(namespace: string): Promise<{ items: CDNLoadBalancer[] }> {
     return this.get(`/api/config/namespaces/${namespace}/cdn_loadbalancers`);
-  }
-
-  async getCDN(namespace: string, name: string): Promise<CDNLoadBalancer> {
-    return this.get(`/api/config/namespaces/${namespace}/cdn_loadbalancers/${name}`);
   }
 
   async getCDNCacheRule(namespace: string, name: string): Promise<CDNCacheRule> {
@@ -203,7 +170,36 @@ class F5XCApiClient {
   async createAlertPolicy(namespace: string, body: unknown): Promise<AlertPolicy> {
     return this.post(`/api/config/namespaces/${namespace}/alert_policys`, body);
   }
-  
+
+  // --- Service Policy APIs ---
+  async getServicePolicies(namespace: string): Promise<{ items: ServicePolicy[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/service_policys`);
+  }
+
+  async getServicePolicy(namespace: string, name: string): Promise<ServicePolicy> {
+    return this.get(`/api/config/namespaces/${namespace}/service_policys/${name}`);
+  }
+
+  async updateServicePolicy(namespace: string, name: string, body: unknown): Promise<ServicePolicy> {
+    return this.put(`/api/config/namespaces/${namespace}/service_policys/${name}`, body);
+  }
+
+  async createServicePolicy(namespace: string, body: unknown): Promise<ServicePolicy> {
+    return this.post(`/api/config/namespaces/${namespace}/service_policys`, body);
+  }
+
+  // --- IP Prefix Set APIs ---
+  async getIpPrefixSets(namespace: string): Promise<{ items: IpPrefixSet[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/ip_prefix_sets`);
+  }
+
+  async getIpPrefixSet(namespace: string, name: string): Promise<IpPrefixSet> {
+    return this.get(`/api/config/namespaces/${namespace}/ip_prefix_sets/${name}`);
+  }
+
+  async createIpPrefixSet(namespace: string, body: unknown): Promise<IpPrefixSet> {
+    return this.post(`/api/config/namespaces/${namespace}/ip_prefix_sets`, body);
+  }
 }
 
 export { F5XCApiClient };

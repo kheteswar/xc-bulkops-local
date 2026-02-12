@@ -8,7 +8,6 @@ import {
   AlertTriangle,
   Search,
   Download,
-  FileText,
   Save,
   Layout,
   Clock,
@@ -18,7 +17,7 @@ import {
   ChevronRight,
   Copy,
   Layers,
-  Split, // Added Split icon for Config Comparator
+  Split,
 } from 'lucide-react';
 import { ConnectionPanel } from '../components/ConnectionPanel';
 import { ToolCard } from '../components/ToolCard';
@@ -48,6 +47,27 @@ const tools = [
     ],
     badge: 'New',
     featured: true,
+  },
+  {
+    name: 'HTTP Sanity Checker',
+    description: 'Smart comparison (headers, fuzzy body match) between Live (Akamai) vs Spoof (F5).',
+    icon: Activity,
+    to: '/http-sanity-checker',
+    tags: [
+      { label: 'Audit', type: 'report' as const },
+      { label: 'Live Traffic', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'Prefix Builder',
+    description: 'Build IP prefix sets in bulk for firewall and routing rules.',
+    icon: Grid3X3,
+    to: '/prefix-builder', // Added link
+    tags: [{ label: 'Create', type: 'create' as const }],
+    disabled: false, // Enabled
+    badge: 'New',    // Added badge
   },
   {
     name: 'WAF Status Scanner',
