@@ -42,6 +42,14 @@ export interface LoadBalancer {
   system_metadata?: {
     creation_timestamp: string;
   };
+  dns_info?: Array<{
+    ip_address?: string;
+    dns_name?: string;
+  }>;
+  internet_vip_info?: Array<{
+    ip_address?: string;
+  }>;
+  [key: string]: unknown;
 }
 
 export interface LoadBalancerSpec {

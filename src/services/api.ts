@@ -1,4 +1,4 @@
-import type { Credentials, Namespace, LoadBalancer, WAFPolicy, OriginPool, AppType, AppSetting, VirtualSite, UserIdentificationPolicy, AlertReceiver, AlertPolicy, CDNLoadBalancer, CDNCacheRule, IpPrefixSet, ServicePolicy } from '../types';
+import type { Credentials, Namespace, LoadBalancer, WAFPolicy, OriginPool, AppType, AppSetting, VirtualSite, UserIdentificationPolicy, AlertReceiver, AlertPolicy, CDNLoadBalancer, CDNCacheRule, IpPrefixSet, ServicePolicy, Certificate } from '../types';
 
 // Proxy endpoint - same server, no need for separate URL
 const PROXY_ENDPOINT = '/api/proxy';
@@ -72,6 +72,28 @@ class F5XCApiClient {
     return data as T;
   }
 
+  // Inside src/services/api.ts, add this method to the F5XCApiClient class:
+
+async requestExternal<T>(tenant: string, token: string, endpoint: string, method = 'GET'): Promise<T> {
+  const response = await fetch(PROXY_ENDPOINT, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tenant,
+      token,
+      endpoint,
+      method,
+    }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || `External API Error: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
   async get<T>(path: string): Promise<T> {
     return this.proxyRequest<T>(path, 'GET');
   }
@@ -102,9 +124,17 @@ class F5XCApiClient {
     return this.get(`/api/config/namespaces/${namespace}/http_loadbalancers/${name}`);
   }
 
+  async createHttpLoadBalancer(namespace: string, body: unknown): Promise<LoadBalancer> {
+    return this.post(`/api/config/namespaces/${namespace}/http_loadbalancers`, body);
+  }
+
   // --- WAF Policy APIs ---
   async getWAFPolicies(namespace: string): Promise<{ items: WAFPolicy[] }> {
     return this.get(`/api/config/namespaces/${namespace}/app_firewalls`);
+  }
+
+  async createAppFirewall(namespace: string, body: unknown): Promise<any> {
+    return this.post(`/api/config/namespaces/${namespace}/app_firewalls`, body);
   }
 
   // --- Origin Pool APIs ---
@@ -114,6 +144,10 @@ class F5XCApiClient {
 
   async getOriginPool(namespace: string, name: string): Promise<OriginPool> {
     return this.get(`/api/config/namespaces/${namespace}/origin_pools/${name}`);
+  }
+
+  async createOriginPool(namespace: string, body: unknown): Promise<OriginPool> {
+    return this.post(`/api/config/namespaces/${namespace}/origin_pools`, body);
   }
 
   // --- App Types APIs ---
@@ -199,6 +233,11 @@ class F5XCApiClient {
 
   async createIpPrefixSet(namespace: string, body: unknown): Promise<IpPrefixSet> {
     return this.post(`/api/config/namespaces/${namespace}/ip_prefix_sets`, body);
+  }
+
+  // --- Certificate APIs ---
+  async getCertificates(namespace: string): Promise<{ items: Certificate[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/certificates`);
   }
 }
 

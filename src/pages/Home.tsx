@@ -18,6 +18,7 @@ import {
   Copy,
   Layers,
   Split,
+  Hammer // Import Hammer icon
 } from 'lucide-react';
 import { ConnectionPanel } from '../components/ConnectionPanel';
 import { ToolCard } from '../components/ToolCard';
@@ -64,10 +65,10 @@ const tools = [
     name: 'Prefix Builder',
     description: 'Build IP prefix sets in bulk for firewall and routing rules.',
     icon: Grid3X3,
-    to: '/prefix-builder', // Added link
+    to: '/prefix-builder',
     tags: [{ label: 'Create', type: 'create' as const }],
-    disabled: false, // Enabled
-    badge: 'New',    // Added badge
+    disabled: false,
+    badge: 'New',
   },
   {
     name: 'WAF Status Scanner',
@@ -94,23 +95,43 @@ const tools = [
     featured: true,
   },
   {
-    name: 'LB Forge',
+    name: 'Security Auditor',
+    description: 'Comprehensive security posture assessment against 30+ best practice rules.',
+    icon: Shield,
+    to: '/security-auditor',
+    tags: [
+      { label: 'Audit', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'Property Viewer',
+    description: 'View any property across all config objects — compare domains, WAF modes, timeouts & more at a glance.',
+    icon: Layers,
+    to: '/property-viewer',
+    tags: [
+      { label: 'Report', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'HTTP LB Forge',
     description: 'Create multiple HTTP Load Balancers at scale from CSV input.',
-    icon: Wrench,
+    icon: Hammer,
+    to: '/http-lb-forge',
     tags: [{ label: 'Create', type: 'create' as const }],
-    disabled: true,
+    disabled: false,
+    badge: 'New',
+    featured: true,
   },
   {
     name: 'CDN Factory',
     description: 'Spin up CDN distributions en masse with bulk configuration.',
     icon: Globe,
-    tags: [{ label: 'Create', type: 'create' as const }],
-    disabled: true,
-  },
-  {
-    name: 'Prefix Builder',
-    description: 'Build IP prefix sets in bulk for firewall and routing rules.',
-    icon: Grid3X3,
     tags: [{ label: 'Create', type: 'create' as const }],
     disabled: true,
   },
@@ -148,30 +169,6 @@ const tools = [
     icon: Download,
     tags: [{ label: 'Export', type: 'report' as const }],
     disabled: true,
-  },
-  {
-    name: 'Security Auditor',
-    description: 'Comprehensive security posture assessment against 30+ best practice rules.',
-    icon: Shield,
-    to: '/security-auditor',
-    tags: [
-      { label: 'Audit', type: 'report' as const },
-      { label: 'Read-Only', type: 'safe' as const },
-    ],
-    badge: 'New',
-    featured: true,
-  },
-  {
-    name: 'Property Viewer',
-    description: 'View any property across all config objects — compare domains, WAF modes, timeouts & more at a glance.',
-    icon: Layers,
-    to: '/property-viewer',
-    tags: [
-      { label: 'Report', type: 'report' as const },
-      { label: 'Read-Only', type: 'safe' as const },
-    ],
-    badge: 'New',
-    featured: true,
   },
 ];
 

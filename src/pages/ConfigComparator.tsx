@@ -144,20 +144,23 @@ export function ConfigComparator() {
   };
 
   const validateDestinationTenant = async () => {
-    if (!config.destTenant?.trim() || !config.destToken?.trim()) return toast.warning('Missing destination credentials');
-    setIsValidatingDest(true);
-    try {
-      const resp: any = await apiClient.constructor['proxyRequestStatic'](
-        config.destTenant.trim(), config.destToken.trim(), '/api/web/namespaces', 'GET'
-      );
-      setDestNamespaces(resp.items.sort((a: any, b: any) => a.name.localeCompare(b.name)));
-      setDestValidated(true);
-      toast.success(`Connected to ${config.destTenant}`);
-    } catch {
-      toast.error('Connection failed. Check credentials.');
-      setDestValidated(false);
-    } finally { setIsValidatingDest(false); }
-  };
+  if (!config.destTenant?.trim() || !config.destToken?.trim()) return toast.warning('Missing destination credentials');
+  setIsValidatingDest(true);
+  try {
+    // Change the call here
+    const resp: any = await apiClient.requestExternal(
+      config.destTenant.trim(), 
+      config.destToken.trim(), 
+      '/api/web/namespaces'
+    );
+    setDestNamespaces(resp.items.sort((a: any, b: any) => a.name.localeCompare(b.name)));
+    setDestValidated(true);
+    toast.success(`Connected to ${config.destTenant}`);
+  } catch (e: any) {
+    toast.error(`Connection failed: ${e.message}`);
+    setDestValidated(false);
+  } finally { setIsValidatingDest(false); }
+};
 
   // ═════════════════════════════════════════════════════════════════════════
   // API & LOGIC
@@ -165,10 +168,11 @@ export function ConfigComparator() {
 
   const fetchFromSource = async (path: string) => apiClient.get(path);
   const fetchFromDest = async (path: string) => {
-    if (config.mode === 'namespace') return apiClient.get(path);
-    if (!config.destTenant || !config.destToken) throw new Error('Missing credentials');
-    return apiClient.constructor['proxyRequestStatic'](config.destTenant, config.destToken, path);
-  };
+  if (config.mode === 'namespace') return apiClient.get(path);
+  if (!config.destTenant || !config.destToken) throw new Error('Missing credentials');
+  // Change the call here
+  return apiClient.requestExternal(config.destTenant, config.destToken, path);
+};
 
   const generateOverview = async () => {
     if (!config.sourceNs || !config.destNs) return toast.error('Select namespaces');

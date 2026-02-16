@@ -11,6 +11,7 @@ import { PropertyViewer } from './pages/PropertyViewer';
 import { ConfigComparator } from './pages/ConfigComparator';
 import { HttpSanityChecker } from './pages/HttpSanityChecker';
 import { PrefixBuilder } from './pages/PrefixBuilder';
+import { HttpLbForge } from './pages/HttpLbForge';
 
 function App() {
   return (
@@ -36,6 +37,7 @@ function App() {
               <Route path="/config-comparator" element={<ConfigComparator />} />
               <Route path="/http-sanity-checker" element={<HttpSanityChecker />} />
               <Route path="/prefix-builder" element={<PrefixBuilder />} />
+              <Route path="/http-lb-forge" element={<HttpLbForge />} />
             </Routes>
           </div>
         </ToastProvider>

@@ -87,7 +87,7 @@ A live traffic validation tool.
 
 ### 2. Clone the Repository
 ```bash
-git clone [https://github.com/kheteswar/xc-bulkops-local.git](https://github.com/kheteswar/xc-bulkops-local.git)
+git clone https://github.com/kheteswar/xc-bulkops-local.git
 cd xc-bulkops-local
 
 ```
