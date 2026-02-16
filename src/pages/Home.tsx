@@ -18,7 +18,7 @@ import {
   Copy,
   Layers,
   Split,
-  Hammer // Import Hammer icon
+  Hammer
 } from 'lucide-react';
 import { ConnectionPanel } from '../components/ConnectionPanel';
 import { ToolCard } from '../components/ToolCard';
@@ -231,12 +231,6 @@ export function Home() {
       </section>
 
       <section id="tools" className="mb-12">
-        <div className="mb-8">
-          <h2 className="text-2xl font-bold text-slate-100 mb-2">Bulk Operations</h2>
-          <p className="text-slate-400">
-            Select a tool to perform bulk configuration operations on your F5 XC environment
-          </p>
-        </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {tools.map(tool => (
@@ -274,13 +268,13 @@ export function Home() {
       <footer className="border-t border-slate-800 pt-6 pb-12">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-300">XC BulkOps</span>
+            <span className="font-semibold text-slate-300">XC App Store</span>
             <span className="px-2 py-0.5 bg-slate-800 rounded text-xs text-slate-500 font-mono">
               v1.0.0
             </span>
           </div>
           <p className="text-sm text-slate-500">
-            This tool is not affiliated with or endorsed by F5, Inc. Use at your own risk.
+            This app store is not affiliated with or endorsed by F5, Inc. Use at your own risk.
           </p>
           <div className="flex items-center gap-4 text-sm">
             <a

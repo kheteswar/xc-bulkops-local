@@ -36,10 +36,10 @@ export function Header() {
           </div>
           <div className="flex flex-col">
             <span className="text-lg font-bold text-slate-100 tracking-tight">
-              XC BulkOps
+              XC App Store
             </span>
             <span className="text-xs text-slate-500 font-medium">
-              F5 XC Bulk Operations Toolbox
+              F5 XC Apps & Scripts
             </span>
           </div>
         </Link>

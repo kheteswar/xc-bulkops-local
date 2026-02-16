@@ -1,4 +1,5 @@
-# F5 Distributed Cloud (XC) BulkOps & Utilities
+# XC App Store
+> A centralized hub for specialized apps and scripts designed for bulk operations and advanced tasks in F5 Distributed Cloud (XC).
 
 **Repository:** [https://github.com/kheteswar/xc-bulkops-local.git](https://github.com/kheteswar/xc-bulkops-local.git)
 
@@ -87,98 +88,5 @@ A live traffic validation tool.
 
 ### 2. Clone the Repository
 ```bash
-git clone https://github.com/kheteswar/xc-bulkops-local.git
+git clone [https://github.com/kheteswar/xc-bulkops-local.git](https://github.com/kheteswar/xc-bulkops-local.git)
 cd xc-bulkops-local
-
-```
-
-### 3. Install Dependencies
-
-```bash
-npm install
-
-```
-
-### 4. Configure the API Proxy (Crucial)
-
-To avoid **CORS (Cross-Origin Resource Sharing)** issues when calling the F5 XC API from a browser, this application expects a local proxy endpoint at `/api/proxy`.
-
-**If using the built-in Vite server:**
-Check `vite.config.ts`. It should be configured to proxy requests. If you are running against a live F5 tenant, you might need to adjust the `proxy` settings or run a small backend server (Node/Express) that forwards requests to `https://<your-tenant>.console.ves.volterra.io/api/...`.
-
-*The codebase currently uses a generic `/api/proxy` endpoint expecting a POST body containing `tenant`, `token`, `endpoint`, and `method`.*
-
-### 5. Run Development Server
-
-```bash
-npm run dev
-
-```
-
-Open your browser to `http://localhost:5173`.
-
----
-
-## 📖 Usage
-
-### Authentication
-
-1. Launch the app.
-2. In the top header (Connection Panel), enter:
-* **Tenant:** Your F5 XC Tenant URL (e.g., `https://mycompany.console.ves.volterra.io`).
-* **API Token:** Create this in F5 XC Console -> *Account Settings* -> *Personal API Credentials*.
-
-
-3. Click **Connect**.
-
-### Using the Prefix Builder
-
-1. Navigate to **Prefix Builder**.
-2. **Namespace:** Select the namespace where objects should be created.
-3. **Input:** Paste a list of IPs (CIDR) or upload a `.txt` file.
-4. **Mode:** * The tool auto-detects if you have >1024 IPs and switches to **Auto-Split** mode.
-* You can manually toggle between Single and Multi modes.
-
-
-5. **Service Policy:** Check "Configure Service Policy" to attach these IPs to a WAF rule immediately.
-* You can attach to an **Existing Policy** (updates the rule list).
-* Or **Create a New Policy** (defines new Allow/Deny rules).
-
-
-
----
-
-## 📂 Project Structure
-
-```text
-src/
-├── components/          # Shared UI (Header, ToolCard, ConnectionPanel)
-├── context/             # Global State (AppContext for Auth, ToastContext)
-├── pages/               # Feature Pages
-│   ├── SecurityAuditor.tsx
-│   ├── PrefixBuilder.tsx
-│   ├── ConfigComparator.tsx
-│   ├── ConfigVisualizer.tsx
-│   ├── WAFScanner.tsx
-│   ├── PropertyViewer.tsx
-│   ├── CopyConfig.tsx
-│   └── HttpSanityChecker.tsx
-├── services/            # Logic Layer
-│   ├── api.ts           # Central API Client (Singleton)
-│   └── security-auditor/# Compliance Rules Engine
-├── types/               # TypeScript Definitions (ServicePolicy, LoadBalancer, etc.)
-└── utils/               # Helpers (Certificate parsing, etc.)
-
-```
-
-## 🤝 Contributing
-
-1. Fork the repository.
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request.
-
-## 📄 License
-
-Distributed under the MIT License. See `LICENSE` for more information.
