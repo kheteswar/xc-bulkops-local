@@ -1,6 +1,6 @@
-# F5 XC App Store - collection of F5 XC Apps and scripts
+# F5 XC App Store
 
-A powerful, React-based internal suite designed for F5 Distributed Cloud (XC) practitioners. This tool streamlines complex configuration management and professional activities like time tracking through a unified, modern interface.
+A powerful, React-based internal suite designed for F5 Distributed Cloud (XC) practitioners. This App store streamlines complex configuration management in XC with various apps and scripts and professional activities like time tracking through a unified, modern interface.
 
 ---
 
