@@ -7,7 +7,7 @@ import https from 'node:https';
 import zlib from 'node:zlib';
 
 /**
- * Make HTTPS request to F5 XC API
+ * Make HTTPS request to F5 XC API (and External APIs)
  * Used by the generic /api/proxy endpoint
  */
 function makeF5XCRequest(options: https.RequestOptions, postData?: string): Promise<{
@@ -40,8 +40,8 @@ function makeF5XCRequest(options: https.RequestOptions, postData?: string): Prom
 }
 
 /**
- * Handle generic proxy requests to F5 XC API
- * Used by WAF Scanner, Security Auditor, etc.
+ * Handle generic proxy requests to F5 XC API & External APIs
+ * Used by WAF Scanner, Security Auditor, Time Tracker, etc.
  */
 async function handleProxyRequest(req: IncomingMessage, res: ServerResponse) {
   let body = '';
@@ -50,24 +50,43 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse) {
   }
 
   try {
-    const { tenant, token, endpoint, method = 'GET', body: requestBody } = JSON.parse(body);
+    const parsed = JSON.parse(body);
+    const { tenant, token, endpoint, method = 'GET', body: requestBody, isExternal, targetUrl } = parsed;
 
-    if (!tenant || !token || !endpoint) {
+    if (!token) {
       res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing tenant, token, or endpoint' }));
+      res.end(JSON.stringify({ error: 'Missing token' }));
       return;
     }
 
-    const host = `${tenant}.console.ves.volterra.io`;
-    // Don't add /api prefix if endpoint already starts with it
-    const path = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
+    let hostname = '';
+    let path = '';
+    let authHeader = '';
+
+    // NEW: Handle External APIs (like Time Tracker) differently
+    if (isExternal && targetUrl) {
+      const urlObj = new URL(targetUrl);
+      hostname = urlObj.hostname;
+      path = urlObj.pathname + urlObj.search;
+      authHeader = `Bearer ${token}`; // External APIs typically use Bearer
+    } else {
+      // EXISTING: Standard F5 XC formatting
+      if (!tenant || !endpoint) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Missing tenant or endpoint for F5 XC request' }));
+        return;
+      }
+      hostname = `${tenant}.console.ves.volterra.io`;
+      path = endpoint.startsWith('/api') ? endpoint : `/api${endpoint}`;
+      authHeader = `APIToken ${token}`; // F5 XC requires APIToken prefix
+    }
 
     const options: https.RequestOptions = {
-      hostname: host,
+      hostname: hostname,
       path: path,
       method: method,
       headers: {
-        'Authorization': `APIToken ${token}`,
+        'Authorization': authHeader,
         'Content-Type': 'application/json',
         'Accept': 'application/json',
       },

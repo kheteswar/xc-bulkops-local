@@ -128,6 +128,7 @@ export function ConfigComparator() {
   
   // State: Custom Selection (Cross-Compare)
   const [selectedRows, setSelectedRows] = useState<OverviewItem[]>([]);
+  const [currentCompareItem, setCurrentCompareItem] = useState<OverviewItem | null>(null);
 
   // State: Deep Compare
   const [compareMeta, setCompareMeta] = useState<CompareMeta | null>(null);
@@ -232,6 +233,7 @@ export function ConfigComparator() {
     setIsLoading(true);
     setOverviewItems([]);
     setSelectedRows([]);
+    setCurrentCompareItem(null);
 
     try {
       const srcHttpPath = `/api/config/namespaces/${config.sourceNs}/http_loadbalancers`;
@@ -358,6 +360,7 @@ export function ConfigComparator() {
   };
 
   const startStandardCompare = async (item: OverviewItem) => {
+    setCurrentCompareItem(item);
     setIsDeepLoading(true);
     setDeepSource(null);
     setDeepDest(null);
@@ -389,6 +392,7 @@ export function ConfigComparator() {
   const startCustomCompare = async () => {
     if (selectedRows.length !== 2) return toast.error('Please select exactly 2 items');
     
+    setCurrentCompareItem(null); // Clear Standard tracking
     setIsDeepLoading(true);
     setDeepSource(null);
     setDeepDest(null);
@@ -439,6 +443,35 @@ export function ConfigComparator() {
       setSelectedRows([...selectedRows, item]);
     }
   };
+
+
+  // ═════════════════════════════════════════════════════════════════════════
+  // LIST FILTERING & "NEXT" CALCULATION
+  // ═════════════════════════════════════════════════════════════════════════
+  
+  const filteredItems = overviewItems.filter(item => {
+    if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false;
+    if (filterType !== 'ALL' && item.type !== filterType) return false;
+    if (filterStatus === 'MATCH' && !(item.status === 'match' && item.domainsMatch)) return false;
+    if (filterStatus === 'DIFF' && !(item.status === 'match' && !item.domainsMatch)) return false;
+    if (filterStatus === 'ORPHAN' && item.status === 'match') return false;
+    return true;
+  });
+
+  // Calculate the Next Comparable Item (respects active filters)
+  let nextItem: OverviewItem | null = null;
+  if (currentCompareItem) {
+     const currentIndex = filteredItems.findIndex(i => i.name === currentCompareItem.name && i.type === currentCompareItem.type);
+     if (currentIndex !== -1) {
+       for (let i = currentIndex + 1; i < filteredItems.length; i++) {
+         const item = filteredItems[i];
+         if (item.status === 'match' || item.status === 'diff') {
+           nextItem = item;
+           break;
+         }
+       }
+     }
+  }
 
 
   // ═════════════════════════════════════════════════════════════════════════
@@ -791,14 +824,7 @@ export function ConfigComparator() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-700">
-                  {overviewItems.filter(item => {
-                    if (search && !item.name.toLowerCase().includes(search.toLowerCase())) return false;
-                    if (filterType !== 'ALL' && item.type !== filterType) return false;
-                    if (filterStatus === 'MATCH' && !(item.status === 'match' && item.domainsMatch)) return false;
-                    if (filterStatus === 'DIFF' && !(item.status === 'match' && !item.domainsMatch)) return false;
-                    if (filterStatus === 'ORPHAN' && item.status === 'match') return false;
-                    return true;
-                  }).map(item => {
+                  {filteredItems.map(item => {
                     const isSelected = selectedRows.some(r => r.name === item.name && r.type === item.type);
                     
                     return (
@@ -880,9 +906,22 @@ export function ConfigComparator() {
                    </button>
                  </div>
                </div>
-               <button onClick={() => setStep(2)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-white transition-colors">
-                 Back to List
-               </button>
+               
+               <div className="flex items-center gap-3">
+                 {/* SHOW NEXT BUTTON IF THERE IS A NEXT COMPARABLE ITEM */}
+                 {nextItem && (
+                    <button 
+                      onClick={() => startStandardCompare(nextItem!)} 
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm text-white font-bold transition-colors flex items-center gap-2 shadow"
+                      title={`Next: ${nextItem.name}`}
+                    >
+                      Compare Next <ArrowRight className="w-4 h-4"/>
+                    </button>
+                 )}
+                 <button onClick={() => setStep(2)} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm text-white transition-colors">
+                   Back to List
+                 </button>
+               </div>
             </div>
 
             {isDeepLoading ? (

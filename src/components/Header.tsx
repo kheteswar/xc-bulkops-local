@@ -1,5 +1,6 @@
 import { Link, useLocation } from 'react-router-dom';
 import { Plus, ExternalLink } from 'lucide-react';
+import { Clock } from 'lucide-react';
 
 export function Header() {
   const location = useLocation();
@@ -45,6 +46,10 @@ export function Header() {
         </Link>
 
         <nav className="flex items-center gap-1">
+          <Link to="/time-tracker" className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-slate-400 hover:text-white transition-colors">
+            <Clock className="w-4 h-4" />
+            Time Tracker
+          </Link>
           {navLinks.map(link => (
             <Link
               key={link.label}

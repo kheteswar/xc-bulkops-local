@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // Property Viewer - View selected properties across all config objects
 // Supports multi-property selection, card+table views, CSV/Excel/JSON export
-// Enhanced with additional properties and distribution filtering
+// Enhanced with additional properties, distribution filtering, and Raw JSON view
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -43,6 +43,7 @@ interface ResultRow {
   objectName: string;
   values: Record<string, string>;
   error?: boolean;
+  rawData?: any; // Stores the full raw JSON object
 }
 
 interface LogEntry {
@@ -71,7 +72,7 @@ const getLBType = (spec: any): string => {
   return 'HTTP';
 };
 const getTLSMinVersion = (spec: any): string => {
-  const tls = spec?.https?.tls_config || spec?.https_auto_cert?.tls_config || spec?.https?.tls_cert_params?.tls_config;
+  const tls = spec?.https?.tls_config || spec?.https_auto_cert?.tls_config || spec?.https?.tls_cert_params?.tls_config || spec?.https?.tls_cert_options?.tls_cert_params?.tls_config;
   return tls ? (tls.min_version || 'Default') : 'N/A';
 };
 const getWafMode = (spec: any): string => {
@@ -88,10 +89,13 @@ const getBoolFlag = (val: any, t = 'Enabled', f = 'Disabled'): string =>
   (val === true || (val !== undefined && val !== null && typeof val === 'object')) ? t : f;
 
 const HTTP_LB_PROPERTIES: PropertyDef[] = [
+  // General
   { id: 'domains', label: 'Domains', category: 'General', extractor: (o) => o?.spec?.domains?.join(', ') || 'None' },
-  { id: 'dns_info', label: 'DNS IP / VIP', category: 'General', extractor: (o) => {
+  { id: 'host_name', label: 'CNAME / Hostname', category: 'General', extractor: (o) => o?.spec?.host_name || 'N/A' },
+  { id: 'dns_ips', label: 'DNS / VIP IPs', category: 'General', extractor: (o) => o?.spec?.dns_info?.map((d: any) => d.ip_address).join(', ') || 'N/A' },
+  { id: 'advertise_ip_info', label: 'Advertise IP / VIP Name', category: 'General', extractor: (o) => {
       const pub = o?.spec?.advertise_on_public;
-      if (pub?.public_ip?.name) return `IP: ${pub.public_ip.name}`;
+      if (pub?.public_ip?.name) return `IP Object: ${pub.public_ip.name}`;
       if (o?.spec?.advertise_on_public_default_vip) return 'Default VIP';
       return 'N/A';
   }},
@@ -100,52 +104,114 @@ const HTTP_LB_PROPERTIES: PropertyDef[] = [
   { id: 'description', label: 'Description', category: 'General', extractor: (o) => o?.metadata?.description || o?.metadata?.annotations?.description || 'N/A' },
   { id: 'lb_type', label: 'LB Type', category: 'General', extractor: (o) => getLBType(o?.spec) },
   { id: 'advertise_type', label: 'Advertise Policy', category: 'General', extractor: (o) => getAdvertiseType(o?.spec) },
-  { id: 'creation_timestamp', label: 'Creation Timestamp', category: 'General', extractor: (o) => o?.system_metadata?.creation_timestamp || 'N/A' },
   { id: 'creation_date', label: 'Creation Date', category: 'General', extractor: (o) => o?.system_metadata?.creation_timestamp ? new Date(o.system_metadata.creation_timestamp).toLocaleDateString() : 'N/A' },
   { id: 'disabled', label: 'Disabled', category: 'General', extractor: (o) => o?.metadata?.disable ? 'Yes' : 'No' },
+  { id: 'add_location', label: 'Add Location', category: 'General', extractor: (o) => getBoolFlag(o?.spec?.add_location) },
+
+  // Status
+  { id: 'vh_state', label: 'Virtual Host State', category: 'Status', extractor: (o) => o?.spec?.state || 'N/A' },
+  { id: 'cert_state', label: 'Certificate State', category: 'Status', extractor: (o) => o?.spec?.cert_state || 'N/A' },
+  { id: 'auto_cert_state', label: 'Auto Cert State', category: 'Status', extractor: (o) => o?.spec?.auto_cert_info?.auto_cert_state || 'N/A' },
+
+  // TLS/SSL
   { id: 'tls_min_version', label: 'TLS Min Version', category: 'TLS/SSL', extractor: (o) => getTLSMinVersion(o?.spec) },
   { id: 'hsts', label: 'HSTS Header', category: 'TLS/SSL', extractor: (o) => getBoolFlag(o?.spec?.add_hsts_header) },
   { id: 'http_redirect', label: 'HTTP→HTTPS Redirect', category: 'TLS/SSL', extractor: (o) => getBoolFlag(o?.spec?.http_redirect || o?.spec?.https_auto_cert?.http_redirect || o?.spec?.https?.http_redirect) },
   { id: 'mtls', label: 'mTLS', category: 'TLS/SSL', extractor: (o) => { const h = o?.spec?.https || o?.spec?.https_auto_cert; return h?.tls_cert_params?.use_mtls ? 'Enabled' : 'Disabled'; } },
+
+  // Security
   { id: 'waf_policy', label: 'WAF Policy', category: 'Security', extractor: (o) => o?.spec?.disable_waf ? 'Disabled' : (o?.spec?.app_firewall?.name || 'None') },
-  { id: 'bot_defense', label: 'Bot Defense', category: 'Security', extractor: (o) => o?.spec?.disable_bot_defense ? 'Disabled' : (o?.spec?.bot_defense?.policy?.name || 'None') },
+  { id: 'bot_defense', label: 'Bot Defense', category: 'Security', extractor: (o) => (o?.spec?.disable_bot_defense !== undefined) ? 'Disabled' : (o?.spec?.bot_defense?.policy?.name || 'Enabled') },
   { id: 'ip_reputation', label: 'IP Reputation', category: 'Security', extractor: (o) => o?.spec?.enable_ip_reputation ? 'Enabled' : 'Disabled' },
-  { id: 'api_discovery', label: 'API Discovery', category: 'Security', extractor: (o) => o?.spec?.enable_api_discovery ? 'Enabled' : 'Disabled' },
-  { id: 'malicious_user_detection', label: 'Malicious User Detection', category: 'Security', extractor: (o) => o?.spec?.enable_malicious_user_detection ? 'Enabled' : 'Disabled' },
+  { id: 'api_discovery', label: 'API Discovery', category: 'Security', extractor: (o) => (o?.spec?.disable_api_discovery !== undefined) ? 'Disabled' : (o?.spec?.enable_api_discovery ? 'Enabled' : 'Default') },
+  { id: 'api_testing', label: 'API Testing', category: 'Security', extractor: (o) => (o?.spec?.disable_api_testing !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'api_definition', label: 'API Definition', category: 'Security', extractor: (o) => (o?.spec?.disable_api_definition !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'malicious_user_detection', label: 'Malicious User Detection', category: 'Security', extractor: (o) => (o?.spec?.disable_malicious_user_detection !== undefined) ? 'Disabled' : (o?.spec?.enable_malicious_user_detection ? 'Enabled' : 'Default') },
   { id: 'ddos_detection', label: 'DDoS Detection', category: 'Security', extractor: (o) => o?.spec?.enable_ddos_detection ? 'Enabled' : 'Disabled' },
+  { id: 'l7_ddos_protection', label: 'L7 DDoS Protection', category: 'Security', extractor: (o) => o?.spec?.l7_ddos_protection ? 'Enabled' : 'Disabled' },
+  { id: 'rate_limit', label: 'Rate Limiting', category: 'Security', extractor: (o) => (o?.spec?.disable_rate_limit !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'malware_protection', label: 'Malware Protection', category: 'Security', extractor: (o) => (o?.spec?.disable_malware_protection !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'threat_mesh', label: 'Threat Mesh', category: 'Security', extractor: (o) => (o?.spec?.disable_threat_mesh !== undefined) ? 'Disabled' : 'Enabled' },
   { id: 'service_policies', label: 'Service Policies', category: 'Security', extractor: (o) => { const p = o?.spec?.active_service_policies?.policies; return p?.length ? p.map((x: any) => x.name).join(', ') : 'None'; } },
   { id: 'user_identification', label: 'User Identification', category: 'Security', extractor: (o) => o?.spec?.user_identification?.name || 'None' },
-  { id: 'client_side_defense', label: 'Client-Side Defense', category: 'Security', extractor: (o) => o?.spec?.disable_client_side_defense ? 'Disabled' : (o?.spec?.client_side_defense?.policy?.name || 'None') },
-  { id: 'challenge_type', label: 'Challenge Type', category: 'Security', extractor: (o) => { if (o?.spec?.no_challenge) return 'None'; if (o?.spec?.policy_based_challenge) return 'Policy-Based'; if (o?.spec?.js_challenge) return 'JS Challenge'; if (o?.spec?.captcha_challenge) return 'Captcha'; if (o?.spec?.enable_challenge) return 'Default Challenge'; return 'None'; } },
+  { id: 'client_side_defense', label: 'Client-Side Defense', category: 'Security', extractor: (o) => (o?.spec?.disable_client_side_defense !== undefined) ? 'Disabled' : (o?.spec?.client_side_defense?.policy?.name || 'Enabled') },
+  { id: 'challenge_type', label: 'Challenge Type', category: 'Security', extractor: (o) => { if (o?.spec?.no_challenge !== undefined) return 'None'; if (o?.spec?.policy_based_challenge) return 'Policy-Based'; if (o?.spec?.js_challenge) return 'JS Challenge'; if (o?.spec?.captcha_challenge) return 'Captcha'; if (o?.spec?.enable_challenge) return 'Default Challenge'; return 'None'; } },
   { id: 'cors_policy', label: 'CORS Policy', category: 'Security', extractor: (o) => { const c = o?.spec?.cors_policy; return (!c || c?.disabled) ? 'Disabled' : `Origins: ${c.allow_origin?.join(', ') || 'Any'}`; } },
   { id: 'csrf_policy', label: 'CSRF Policy', category: 'Security', extractor: (o) => (!o?.spec?.csrf_policy || o?.spec?.csrf_policy?.disabled) ? 'Disabled' : 'Enabled' },
   { id: 'trusted_clients_count', label: 'Trusted Clients', category: 'Security', extractor: (o) => String(o?.spec?.trusted_clients?.length || 0) },
   { id: 'blocked_clients_count', label: 'Blocked Clients', category: 'Security', extractor: (o) => String(o?.spec?.blocked_clients?.length || 0) },
+
+  // Performance
   { id: 'idle_timeout', label: 'HTTP Idle Timeout', category: 'Performance', extractor: (o) => { const t = o?.spec?.idle_timeout || o?.spec?.more_option?.idle_timeout; return t ? `${t}ms` : 'Default'; } },
   { id: 'max_request_header_size', label: 'Max Req Header Size', category: 'Performance', extractor: (o) => { const s = o?.spec?.max_request_header_size || o?.spec?.more_option?.max_request_header_size; return s ? `${s} bytes` : 'Default'; } },
   { id: 'compression', label: 'Auto Compression', category: 'Performance', extractor: (o) => getBoolFlag(o?.spec?.enable_automatic_compression) },
   { id: 'websocket', label: 'WebSocket', category: 'Performance', extractor: (o) => getBoolFlag(o?.spec?.enable_websocket) },
   { id: 'lb_algorithm', label: 'LB Algorithm', category: 'Performance', extractor: (o) => { const s = o?.spec; if (s?.round_robin !== undefined) return 'Round Robin'; if (s?.least_active !== undefined) return 'Least Active'; if (s?.ring_hash !== undefined) return 'Ring Hash'; if (s?.random !== undefined) return 'Random'; if (s?.source_ip_stickiness !== undefined) return 'Source IP Stickiness'; return 'Round Robin (Default)'; } },
+  { id: 'buffer_policy', label: 'Buffer Policy', category: 'Performance', extractor: (o) => { const b = o?.spec?.more_option?.buffer_policy; return (!b || b?.disabled !== false) ? 'Disabled/Default' : `Max Req: ${b?.max_request_bytes}B`; } },
+  { id: 'custom_errors', label: 'Custom Error Pages', category: 'Performance', extractor: (o) => { const errs = o?.spec?.more_option?.custom_errors; return errs && Object.keys(errs).length > 0 ? Object.keys(errs).join(', ') : 'None'; } },
+
+  // Routes & Origins
   { id: 'routes_count', label: 'Routes Count', category: 'Routes & Origins', extractor: (o) => String(o?.spec?.routes?.length || 0) },
   { id: 'default_pools', label: 'Default Origin Pools', category: 'Routes & Origins', extractor: (o) => { const p = o?.spec?.default_route_pools; return p?.length ? p.map((x: any) => x.pool?.name).filter(Boolean).join(', ') : 'None'; } },
+
+  // Headers
+  { id: 'trust_client_ip', label: 'Trust Client IP Headers', category: 'Headers', extractor: (o) => o?.spec?.enable_trust_client_ip_headers?.client_ip_headers?.join(', ') || 'Disabled' },
   { id: 'request_headers_add_count', label: 'Req Headers to Add', category: 'Headers', extractor: (o) => String((o?.spec?.request_headers_to_add?.length || 0) + (o?.spec?.more_option?.request_headers_to_add?.length || 0)) },
   { id: 'response_headers_add_count', label: 'Resp Headers to Add', category: 'Headers', extractor: (o) => String((o?.spec?.response_headers_to_add?.length || 0) + (o?.spec?.more_option?.response_headers_to_add?.length || 0)) },
-  { id: 'waf_exclusions_count', label: 'WAF Exclusion Rules', category: 'Headers', extractor: (o) => String(o?.spec?.waf_exclusion_rules?.length || 0) },
+  { id: 'waf_exclusions_count', label: 'WAF Exclusion Rules', category: 'Headers', extractor: (o) => { const inline = o?.spec?.waf_exclusion?.waf_exclusion_inline_rules?.rules?.length || 0; const refs = o?.spec?.waf_exclusion_rules?.length || 0; return String(inline + refs); } },
   { id: 'data_guard_rules_count', label: 'Data Guard Rules', category: 'Headers', extractor: (o) => String(o?.spec?.data_guard_rules?.length || 0) },
   { id: 'protected_cookies_count', label: 'Protected Cookies', category: 'Headers', extractor: (o) => String(o?.spec?.protected_cookies?.length || 0) },
 ];
 
 const CDN_LB_PROPERTIES: PropertyDef[] = [
+  // General
   { id: 'domains', label: 'Domains', category: 'General', extractor: (o) => o?.spec?.domains?.join(', ') || 'None' },
+  { id: 'service_domain', label: 'Service Domain / CNAME', category: 'General', extractor: (o) => o?.spec?.service_domains?.map((d: any) => d.service_domain).join(', ') || 'N/A' },
+  { id: 'dns_ips', label: 'DNS / VIP IPs', category: 'General', extractor: (o) => o?.spec?.dns_info?.map((d: any) => d.ip_address).join(', ') || 'N/A' },
   { id: 'labels', label: 'Labels', category: 'General', extractor: getLabels },
-  { id: 'description', label: 'Description', category: 'General', extractor: (o) => o?.metadata?.description || 'N/A' },
-  { id: 'disabled', label: 'Disabled', category: 'General', extractor: (o) => o?.metadata?.disable ? 'Yes' : 'No' },
+  { id: 'description', label: 'Description', category: 'General', extractor: (o) => o?.metadata?.description || o?.metadata?.annotations?.description || 'N/A' },
   { id: 'lb_type', label: 'CDN Type', category: 'General', extractor: (o) => getLBType(o?.spec) },
   { id: 'creation_date', label: 'Creation Date', category: 'General', extractor: (o) => o?.system_metadata?.creation_timestamp ? new Date(o.system_metadata.creation_timestamp).toLocaleDateString() : 'N/A' },
-  { id: 'origin_pool', label: 'Origin Pool', category: 'Origin', extractor: (o) => o?.spec?.origin_pool?.name || 'Inline/None' },
-  { id: 'waf_policy', label: 'WAF Policy', category: 'Security', extractor: (o) => o?.spec?.app_firewall?.name || 'None' },
-  { id: 'bot_defense', label: 'Bot Defense', category: 'Security', extractor: (o) => o?.spec?.disable_bot_defense ? 'Disabled' : (o?.spec?.bot_defense?.policy?.name || 'None') },
-  { id: 'http_redirect', label: 'HTTP→HTTPS Redirect', category: 'TLS/SSL', extractor: (o) => getBoolFlag(o?.spec?.http_redirect) },
+  { id: 'disabled', label: 'Disabled', category: 'General', extractor: (o) => o?.metadata?.disable ? 'Yes' : 'No' },
+  
+  // Status
+  { id: 'vh_state', label: 'Virtual Host State', category: 'Status', extractor: (o) => o?.spec?.state || 'N/A' },
+  { id: 'cert_state', label: 'Certificate State', category: 'Status', extractor: (o) => o?.spec?.cert_state || 'N/A' },
+  { id: 'auto_cert_state', label: 'Auto Cert State', category: 'Status', extractor: (o) => o?.spec?.auto_cert_info?.auto_cert_state || 'N/A' },
+
+  // Caching
+  { id: 'default_cache_ttl', label: 'Default Cache TTL', category: 'Caching', extractor: (o) => o?.spec?.default_cache_action?.cache_ttl_override || 'Default' },
+  { id: 'cache_rules_count', label: 'Cache Rules Count', category: 'Caching', extractor: (o) => String(o?.spec?.cache_rules?.length || 0) },
+  { id: 'custom_cache_rules', label: 'Custom Cache Rules Count', category: 'Caching', extractor: (o) => String(o?.spec?.custom_cache_rule?.cdn_cache_rules?.length || 0) },
+
+  // Origin
+  { id: 'origin_pool', label: 'Origin Pool', category: 'Origin', extractor: (o) => o?.spec?.origin_pool?.pool?.name || 'Inline / Custom' },
+  { id: 'origin_dns', label: 'Origin Public DNS', category: 'Origin', extractor: (o) => o?.spec?.origin_pool?.public_name?.dns_name || 'N/A' },
+  { id: 'origin_request_timeout', label: 'Origin Request Timeout', category: 'Origin', extractor: (o) => o?.spec?.origin_pool?.origin_request_timeout || 'Default' },
+  
+  // TLS/SSL
+  { id: 'http_redirect', label: 'HTTP→HTTPS Redirect', category: 'TLS/SSL', extractor: (o) => getBoolFlag(o?.spec?.https?.http_redirect || o?.spec?.http_redirect) },
+  { id: 'hsts', label: 'HSTS Header', category: 'TLS/SSL', extractor: (o) => getBoolFlag(o?.spec?.https?.add_hsts || o?.spec?.add_hsts) },
+  { id: 'tls_min_version', label: 'TLS Min Version', category: 'TLS/SSL', extractor: (o) => getTLSMinVersion(o?.spec) },
+
+  // Security
+  { id: 'waf_policy', label: 'WAF Policy', category: 'Security', extractor: (o) => (o?.spec?.disable_waf !== undefined) ? 'Disabled' : (o?.spec?.app_firewall?.name || 'Enabled') },
+  { id: 'bot_defense', label: 'Bot Defense', category: 'Security', extractor: (o) => (o?.spec?.disable_bot_defense !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'ip_reputation', label: 'IP Reputation', category: 'Security', extractor: (o) => (o?.spec?.disable_ip_reputation !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'api_discovery', label: 'API Discovery', category: 'Security', extractor: (o) => (o?.spec?.disable_api_discovery !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'api_definition', label: 'API Definition', category: 'Security', extractor: (o) => (o?.spec?.disable_api_definition !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'malicious_user_detection', label: 'Malicious User Detection', category: 'Security', extractor: (o) => (o?.spec?.disable_malicious_user_detection !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'l7_ddos_protection', label: 'L7 DDoS Protection', category: 'Security', extractor: (o) => (o?.spec?.l7_ddos_action_default !== undefined) ? 'Default' : 'Custom' },
+  { id: 'rate_limit', label: 'Rate Limiting', category: 'Security', extractor: (o) => (o?.spec?.disable_rate_limit !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'threat_mesh', label: 'Threat Mesh', category: 'Security', extractor: (o) => (o?.spec?.disable_threat_mesh !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'service_policies', label: 'Service Policies', category: 'Security', extractor: (o) => (o?.spec?.no_service_policies !== undefined) ? 'None' : 'Enabled' },
+  { id: 'client_side_defense', label: 'Client-Side Defense', category: 'Security', extractor: (o) => (o?.spec?.disable_client_side_defense !== undefined) ? 'Disabled' : 'Enabled' },
+
+  // Headers
+  { id: 'request_headers_add_count', label: 'Req Headers to Add', category: 'Headers', extractor: (o) => String(o?.spec?.other_settings?.header_options?.request_headers_to_add?.length || 0) },
+  { id: 'request_headers_remove_count', label: 'Req Headers to Remove', category: 'Headers', extractor: (o) => String(o?.spec?.other_settings?.header_options?.request_headers_to_remove?.length || 0) },
+  { id: 'response_headers_add_count', label: 'Resp Headers to Add', category: 'Headers', extractor: (o) => String(o?.spec?.other_settings?.header_options?.response_headers_to_add?.length || 0) },
+  { id: 'response_headers_remove_count', label: 'Resp Headers to Remove', category: 'Headers', extractor: (o) => String(o?.spec?.other_settings?.header_options?.response_headers_to_remove?.length || 0) },
 ];
 
 const ORIGIN_POOL_PROPERTIES: PropertyDef[] = [
@@ -165,13 +231,23 @@ const ORIGIN_POOL_PROPERTIES: PropertyDef[] = [
 ];
 
 const WAF_POLICY_PROPERTIES: PropertyDef[] = [
+  // General
   { id: 'labels', label: 'Labels', category: 'General', extractor: getLabels },
   { id: 'disabled', label: 'Disabled', category: 'General', extractor: (o) => o?.metadata?.disable ? 'Yes' : 'No' },
+  
+  // Detection Settings
   { id: 'waf_mode', label: 'WAF Mode', category: 'Security', extractor: (o) => getWafMode(o?.spec) },
-  { id: 'detection_disabled_types', label: 'Disabled Attack Types', category: 'Security', extractor: (o) => { const t = o?.spec?.detection_settings?.signature_selection_setting?.attack_type_settings?.disabled_attack_types; return t?.length ? t.join(', ') : 'None'; } },
   { id: 'signature_accuracy', label: 'Signature Accuracy', category: 'Security', extractor: (o) => { const s = o?.spec?.detection_settings?.signature_selection_setting; if (s?.high_medium_low_accuracy_signatures !== undefined) return 'High+Medium+Low'; if (s?.high_medium_accuracy_signatures !== undefined) return 'High+Medium'; if (s?.only_high_accuracy_signatures !== undefined) return 'High Only'; return 'Default'; } },
-  { id: 'blocking_page', label: 'Blocking Page', category: 'Security', extractor: (o) => o?.spec?.custom_blocking_page ? 'Custom' : 'Default' },
-  { id: 'bot_protection', label: 'Bot Protection Level', category: 'Security', extractor: (o) => { const b = o?.spec?.bot_protection_setting; return (b?.good_bot_action && b?.malicious_bot_action && b?.suspicious_bot_action) ? 'Custom' : 'Default'; } },
+  { id: 'detection_disabled_types', label: 'Disabled Attack Types', category: 'Security', extractor: (o) => { const t = o?.spec?.detection_settings?.signature_selection_setting?.attack_type_settings?.disabled_attack_types; return t?.length ? `${t.length} Types Disabled` : 'None'; } },
+  { id: 'disabled_violations', label: 'Disabled Violations', category: 'Security', extractor: (o) => { const v = o?.spec?.detection_settings?.violation_settings?.disabled_violation_types; return v?.length ? `${v.length} Violations Disabled` : 'None'; } },
+  { id: 'staging', label: 'Signature Staging', category: 'Security', extractor: (o) => { if (o?.spec?.detection_settings?.disable_staging !== undefined) return 'Disabled'; const s = o?.spec?.detection_settings?.stage_new_signatures?.staging_period; return s !== undefined ? `${s} Days` : 'Default'; } },
+  { id: 'threat_campaigns', label: 'Threat Campaigns', category: 'Security', extractor: (o) => o?.spec?.detection_settings?.enable_threat_campaigns !== undefined ? 'Enabled' : 'Disabled' },
+  { id: 'suppression', label: 'Suppression', category: 'Security', extractor: (o) => o?.spec?.detection_settings?.enable_suppression !== undefined ? 'Enabled' : 'Disabled' },
+  { id: 'bot_protection', label: 'Bot Protection', category: 'Security', extractor: (o) => { const b = o?.spec?.bot_protection_setting || o?.spec?.detection_settings?.bot_protection_setting; if (!b) return 'Default'; return `Malicious:${b.malicious_bot_action || 'N/A'}, Suspicious:${b.suspicious_bot_action || 'N/A'}, Good:${b.good_bot_action || 'N/A'}`; } },
+  
+  // Actions & Responses
+  { id: 'allowed_response_codes', label: 'Allowed Response Codes', category: 'Actions', extractor: (o) => { if (o?.spec?.allow_all_response_codes !== undefined) return 'All'; const c = o?.spec?.allowed_response_codes?.response_code; return c?.length ? `${c.length} Codes` : 'Default'; } },
+  { id: 'blocking_page', label: 'Blocking Page', category: 'Actions', extractor: (o) => (o?.spec?.use_default_blocking_page !== undefined) ? 'Default' : (o?.spec?.blocking_page ? 'Custom' : 'Default') },
 ];
 
 const TCP_LB_PROPERTIES: PropertyDef[] = [
@@ -203,13 +279,14 @@ const OBJECT_TYPES: ObjectTypeInfo[] = [
 function ValueBadge({ value, compact, onClick }: { value: string; compact?: boolean; onClick?: () => void }) {
   const lower = value.toLowerCase();
   let cls = 'bg-slate-700/60 text-slate-300';
-  if (lower === 'enabled' || lower === 'blocking' || lower === 'yes' || lower === 'custom') cls = 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20';
+  if (lower === 'enabled' || lower === 'blocking' || lower === 'yes' || lower === 'custom' || lower === 'all') cls = 'bg-emerald-500/15 text-emerald-400 ring-1 ring-emerald-500/20';
   else if (lower === 'disabled' || lower === 'none' || lower === 'no') cls = 'bg-slate-700/40 text-slate-500';
-  else if (lower === 'n/a' || lower === '0') cls = 'bg-slate-700/30 text-slate-600';
+  else if (lower === 'n/a' || lower === '0' || lower === 'disabled/default') cls = 'bg-slate-700/30 text-slate-600';
   else if (lower === 'monitoring') cls = 'bg-amber-500/15 text-amber-400 ring-1 ring-amber-500/20';
   else if (lower.startsWith('\u26a0')) cls = 'bg-red-500/15 text-red-400 ring-1 ring-red-500/20';
   else if (lower.includes('default')) cls = 'bg-slate-600/40 text-slate-400';
   else if (/^\d/.test(value)) cls = 'bg-blue-500/10 text-blue-300 ring-1 ring-blue-500/15';
+  else if (value.includes('.') || value.includes('://')) cls = 'bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-500/20 font-mono'; 
   
   const display = value.length > 60 ? value.substring(0, 57) + '...' : value;
   
@@ -256,6 +333,11 @@ export function PropertyViewer() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [viewMode, setViewMode] = useState<ViewMode>('table');
   const [showDistribution, setShowDistribution] = useState(false);
+  
+  // Selection & Raw JSON View
+  const [selectedRowIds, setSelectedRowIds] = useState<Set<string>>(new Set());
+  const [selectedRawData, setSelectedRawData] = useState<any | null>(null);
+  
   const cancelledRef = useRef(false);
 
   const currentType = OBJECT_TYPES.find(t => t.id === selectedObjectType)!;
@@ -295,8 +377,11 @@ export function PropertyViewer() {
     if (selectedProperties.length === 0 || selectedNs.length === 0) return;
     const propDefs = currentType.properties.filter(p => selectedProperties.includes(p.id));
     setStep(3); setIsScanning(true); setRows([]); setLogs([]); setProgress(0); cancelledRef.current = false;
+    setSelectedRowIds(new Set());
 
     const allRows: ResultRow[] = [];
+    const fetchedKeys = new Set<string>(); // Tracks uniqueness so we don't fetch shared objects multiple times
+    
     let processedNs = 0;
     logEntry(`Scanning ${propDefs.length} properties across ${selectedNs.length} namespace(s) for ${currentType.label}`, 'info');
 
@@ -311,21 +396,33 @@ export function PropertyViewer() {
         const items: any[] = listResp?.items || [];
         if (!items.length) { logEntry(`No objects in ${ns}`, 'warning'); continue; }
         logEntry(`Found ${items.length} in ${ns}`, 'success');
+        
         for (const item of items) {
           if (cancelledRef.current) break;
           const name = item.name || item.metadata?.name;
+          
+          // CRITICAL FIX: Extract the actual namespace where the object resides.
+          // Because 'shared' objects appear in the list response of specific namespaces.
+          const actualNs = item.namespace || item.tenant_string || item.metadata?.namespace || ns; 
+          
           if (!name) continue;
+
+          // Prevent duplicate fetches if multiple namespaces list the same shared object
+          const uniqueKey = `${actualNs}::${name}`;
+          if (fetchedKeys.has(uniqueKey)) continue;
+          fetchedKeys.add(uniqueKey);
+
           try {
-            logEntry(`Fetching ${name}...`, 'fetch');
-            const obj: any = await apiClient.get(currentType.apiGetPath(ns, name));
+            logEntry(`Fetching ${name} (from ${actualNs})...`, 'fetch');
+            const obj: any = await apiClient.get(currentType.apiGetPath(actualNs, name));
             const values: Record<string, string> = {};
             for (const pd of propDefs) values[pd.id] = String(pd.extractor(obj));
-            allRows.push({ namespace: ns, objectName: name, values });
+            allRows.push({ namespace: actualNs, objectName: name, values, rawData: obj });
           } catch (e) {
-            logEntry(`Failed: ${name}`, 'error');
+            logEntry(`Failed: ${name} in ${actualNs}`, 'error');
             const values: Record<string, string> = {};
             for (const pd of propDefs) values[pd.id] = '\u26a0 Error';
-            allRows.push({ namespace: ns, objectName: name, values, error: true });
+            allRows.push({ namespace: actualNs, objectName: name, values, error: true });
           }
         }
       } catch { logEntry(`Failed to list in ${ns}`, 'error'); }
@@ -357,39 +454,75 @@ export function PropertyViewer() {
     return Object.entries(c).sort((a, b) => b[1] - a[1]);
   };
 
+  // ─── Selection Logic ────────────────────────────────────────────────
+  const getRowId = (r: ResultRow) => `${r.namespace}::${r.objectName}`;
+  
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) {
+      const newIds = new Set(selectedRowIds);
+      sortedRows.forEach(r => newIds.add(getRowId(r)));
+      setSelectedRowIds(newIds);
+    } else {
+      const newIds = new Set(selectedRowIds);
+      sortedRows.forEach(r => newIds.delete(getRowId(r)));
+      setSelectedRowIds(newIds);
+    }
+  };
+
+  const toggleRowSelection = (id: string) => {
+    const newIds = new Set(selectedRowIds);
+    if (newIds.has(id)) newIds.delete(id);
+    else newIds.add(id);
+    setSelectedRowIds(newIds);
+  };
+
+  const allCurrentSelected = sortedRows.length > 0 && sortedRows.every(r => selectedRowIds.has(getRowId(r)));
+  const someCurrentSelected = sortedRows.some(r => selectedRowIds.has(getRowId(r)));
+
+  const getRowsToExport = () => {
+    // If user selected rows, only export those. Otherwise export the current filtered view.
+    return selectedRowIds.size > 0 
+      ? sortedRows.filter(r => selectedRowIds.has(getRowId(r))) 
+      : sortedRows;
+  };
+
   // ─── Exports ───────────────────────────────────────────────────────
   const esc = (v: string) => (v.includes(',') || v.includes('"') || v.includes('\n')) ? `"${v.replace(/"/g, '""')}"` : v;
 
   const exportCsv = () => {
-    if (!rows.length) { toast.warning('No data'); return; }
+    const targetRows = getRowsToExport();
+    if (!targetRows.length) { toast.warning('No data to export'); return; }
     const cols = ['Namespace', currentType.label, ...selectedPropertyDefs.map(p => p.label)];
-    const lines = [cols.map(esc).join(','), ...rows.map(r => [r.namespace, r.objectName, ...selectedPropertyDefs.map(p => r.values[p.id] || '')].map(esc).join(','))];
+    const lines = [cols.map(esc).join(','), ...targetRows.map(r => [r.namespace, r.objectName, ...selectedPropertyDefs.map(p => r.values[p.id] || '')].map(esc).join(','))];
     const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = 'property-report.csv'; a.click(); URL.revokeObjectURL(u);
+    const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = `property-report-${selectedRowIds.size > 0 ? 'selected' : 'all'}.csv`; a.click(); URL.revokeObjectURL(u);
     toast.success('CSV exported');
   };
 
   const exportExcel = () => {
-    if (!rows.length) { toast.warning('No data'); return; }
+    const targetRows = getRowsToExport();
+    if (!targetRows.length) { toast.warning('No data to export'); return; }
     const hdr = ['Namespace', currentType.label, ...selectedPropertyDefs.map(p => p.label)].map(h => `<Cell><Data ss:Type="String">${h}</Data></Cell>`).join('');
     let trs = `<Row>${hdr}</Row>`;
-    rows.forEach(r => { const cells = [r.namespace, r.objectName, ...selectedPropertyDefs.map(p => r.values[p.id] || '')].map(v => `<Cell><Data ss:Type="String">${v.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</Data></Cell>`).join(''); trs += `<Row>${cells}</Row>`; });
+    targetRows.forEach(r => { const cells = [r.namespace, r.objectName, ...selectedPropertyDefs.map(p => r.values[p.id] || '')].map(v => `<Cell><Data ss:Type="String">${v.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</Data></Cell>`).join(''); trs += `<Row>${cells}</Row>`; });
     const xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"><Worksheet ss:Name="Report"><Table>${trs}</Table></Worksheet></Workbook>`;
-    const blob = new Blob([xml], { type: 'application/vnd.ms-excel' }); const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = 'property-report.xls'; a.click(); URL.revokeObjectURL(u);
+    const blob = new Blob([xml], { type: 'application/vnd.ms-excel' }); const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = `property-report-${selectedRowIds.size > 0 ? 'selected' : 'all'}.xls`; a.click(); URL.revokeObjectURL(u);
     toast.success('Excel exported');
   };
 
   const exportJson = () => {
-    if (!rows.length) { toast.warning('No data'); return; }
-    const rpt = { generated_at: new Date().toISOString(), tool: 'Property Viewer', object_type: currentType.label, properties: selectedPropertyDefs.map(p => p.label), summary: { total: rows.length, namespaces: selectedNs.length }, results: rows.map(r => ({ namespace: r.namespace, name: r.objectName, ...r.values })) };
-    const blob = new Blob([JSON.stringify(rpt, null, 2)], { type: 'application/json' }); const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = 'property-report.json'; a.click(); URL.revokeObjectURL(u);
+    const targetRows = getRowsToExport();
+    if (!targetRows.length) { toast.warning('No data to export'); return; }
+    const rpt = { generated_at: new Date().toISOString(), tool: 'Property Viewer', object_type: currentType.label, properties: selectedPropertyDefs.map(p => p.label), summary: { total: targetRows.length, namespaces: Array.from(new Set(targetRows.map(r=>r.namespace))).length }, results: targetRows.map(r => ({ namespace: r.namespace, name: r.objectName, ...r.values })) };
+    const blob = new Blob([JSON.stringify(rpt, null, 2)], { type: 'application/json' }); const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = `property-report-${selectedRowIds.size > 0 ? 'selected' : 'all'}.json`; a.click(); URL.revokeObjectURL(u);
     toast.success('JSON exported');
   };
 
   const copyTable = () => {
-    if (!rows.length) return;
+    const targetRows = getRowsToExport();
+    if (!targetRows.length) return;
     const cols = ['Namespace', currentType.label, ...selectedPropertyDefs.map(p => p.label)];
-    const lines = [cols.join('\t'), ...sortedRows.map(r => [r.namespace, r.objectName, ...selectedPropertyDefs.map(p => r.values[p.id] || '')].join('\t'))];
+    const lines = [cols.join('\t'), ...targetRows.map(r => [r.namespace, r.objectName, ...selectedPropertyDefs.map(p => r.values[p.id] || '')].join('\t'))];
     navigator.clipboard.writeText(lines.join('\n')).then(() => toast.success('Copied')).catch(() => toast.error('Failed'));
   };
 
@@ -589,16 +722,38 @@ export function PropertyViewer() {
                       <span className="text-slate-600">•</span>
                       <span className="text-cyan-400">{selectedPropertyDefs.length} propert{selectedPropertyDefs.length === 1 ? 'y' : 'ies'}</span>
                     </div>
-                    <div className="flex items-center gap-1.5">
+                    
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {selectedRowIds.size > 0 && (
+                         <div className="flex items-center mr-2">
+                           <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-1 rounded-md">
+                             {selectedRowIds.size} Selected
+                           </span>
+                           <button onClick={() => setSelectedRowIds(new Set())} className="ml-1 p-1 text-slate-400 hover:text-red-400 transition-colors" title="Clear selection">
+                             <X className="w-3.5 h-3.5" />
+                           </button>
+                         </div>
+                      )}
+
                       <div className="flex items-center bg-slate-700/50 rounded-lg p-0.5 mr-2">
                         <button onClick={() => setViewMode('table')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'table' ? 'bg-slate-600 text-slate-200' : 'text-slate-500 hover:text-slate-300'}`} title="Table view"><LayoutList className="w-3.5 h-3.5" /></button>
                         <button onClick={() => setViewMode('cards')} className={`p-1.5 rounded-md transition-colors ${viewMode === 'cards' ? 'bg-slate-600 text-slate-200' : 'text-slate-500 hover:text-slate-300'}`} title="Card view"><LayoutGrid className="w-3.5 h-3.5" /></button>
                       </div>
-                      <button onClick={copyTable} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors"><Copy className="w-3.5 h-3.5" /> Copy</button>
-                      <button onClick={exportCsv} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors"><FileText className="w-3.5 h-3.5" /> CSV</button>
-                      <button onClick={exportExcel} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors"><Table className="w-3.5 h-3.5" /> Excel</button>
-                      <button onClick={exportJson} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors"><FileJson className="w-3.5 h-3.5" /> JSON</button>
-                      <button onClick={() => { setStep(1); setRows([]); setLogs([]); }} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-colors ml-1">New Scan</button>
+                      
+                      <button onClick={copyTable} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors">
+                        <Copy className="w-3.5 h-3.5" /> Copy {selectedRowIds.size > 0 && `(${selectedRowIds.size})`}
+                      </button>
+                      <button onClick={exportCsv} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors">
+                        <FileText className="w-3.5 h-3.5" /> CSV {selectedRowIds.size > 0 && `(${selectedRowIds.size})`}
+                      </button>
+                      <button onClick={exportExcel} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors">
+                        <Table className="w-3.5 h-3.5" /> Excel {selectedRowIds.size > 0 && `(${selectedRowIds.size})`}
+                      </button>
+                      <button onClick={exportJson} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors">
+                        <FileJson className="w-3.5 h-3.5" /> JSON {selectedRowIds.size > 0 && `(${selectedRowIds.size})`}
+                      </button>
+                      
+                      <button onClick={() => { setStep(1); setRows([]); setLogs([]); setSelectedRowIds(new Set()); }} className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-colors ml-1">New Scan</button>
                     </div>
                   </div>
                 </div>
@@ -652,8 +807,20 @@ export function PropertyViewer() {
                       <table className="w-full border-collapse">
                         <thead>
                           <tr className="bg-slate-800/80">
-                            <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider cursor-pointer hover:text-slate-200 select-none sticky left-0 bg-slate-800 z-10 border-b border-slate-600" onClick={() => toggleSort('namespace')}>
-                              <div className="flex items-center gap-1">Namespace {sortBy === 'namespace' && (sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-400" /> : <ChevronDown className="w-3 h-3 text-blue-400" />)}</div>
+                            <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider select-none sticky left-0 bg-slate-800 z-10 border-b border-slate-600">
+                              <div className="flex items-center gap-3">
+                                <input 
+                                  type="checkbox" 
+                                  className="w-4 h-4 rounded border-slate-600 bg-slate-700/50 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-800 cursor-pointer"
+                                  checked={allCurrentSelected}
+                                  ref={input => { if (input) input.indeterminate = someCurrentSelected && !allCurrentSelected; }}
+                                  onChange={handleSelectAll}
+                                  title="Select/Deselect All in view"
+                                />
+                                <div className="flex items-center gap-1 cursor-pointer hover:text-slate-200" onClick={() => toggleSort('namespace')}>
+                                  Namespace {sortBy === 'namespace' && (sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-400" /> : <ChevronDown className="w-3 h-3 text-blue-400" />)}
+                                </div>
+                              </div>
                             </th>
                             <th className="text-left px-5 py-3.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wider cursor-pointer hover:text-slate-200 select-none border-b border-slate-600" onClick={() => toggleSort('name')}>
                               <div className="flex items-center gap-1">Name {sortBy === 'name' && (sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-400" /> : <ChevronDown className="w-3 h-3 text-blue-400" />)}</div>
@@ -663,16 +830,27 @@ export function PropertyViewer() {
                                 <div className="flex items-center gap-1">{p.label} {sortBy === p.id && (sortDir === 'asc' ? <ChevronUp className="w-3 h-3 text-blue-400" /> : <ChevronDown className="w-3 h-3 text-blue-400" />)}</div>
                               </th>
                             ))}
+                            <th className="px-5 py-3.5 border-b border-slate-600 sticky right-0 bg-slate-800 z-10 w-16"></th>
                           </tr>
                         </thead>
                         <tbody>
                           {sortedRows.map((row, i) => {
                             const isNewNs = i === 0 || sortedRows[i - 1].namespace !== row.namespace;
+                            const rId = getRowId(row);
+                            const isSelected = selectedRowIds.has(rId);
                             return (
-                              <tr key={`${row.namespace}-${row.objectName}-${i}`}
-                                className={`transition-colors hover:bg-blue-500/5 ${row.error ? 'bg-red-500/5' : i % 2 === 0 ? 'bg-slate-800/10' : 'bg-slate-800/30'} ${isNewNs && i > 0 ? 'border-t-[3px] border-slate-600/60' : ''}`}>
-                                <td className={`px-5 py-3.5 sticky left-0 z-10 border-b border-slate-700/40 ${i % 2 === 0 ? 'bg-slate-900/60' : 'bg-slate-900/80'}`}>
-                                  {isNewNs ? <span className="text-xs font-semibold text-blue-400 font-mono">{row.namespace}</span> : <span className="text-xs text-slate-600 font-mono pl-2">↳</span>}
+                              <tr key={`${rId}-${i}`}
+                                className={`transition-colors hover:bg-blue-500/5 ${isSelected ? 'bg-blue-500/10' : row.error ? 'bg-red-500/5' : i % 2 === 0 ? 'bg-slate-800/10' : 'bg-slate-800/30'} ${isNewNs && i > 0 ? 'border-t-[3px] border-slate-600/60' : ''}`}>
+                                <td className={`px-5 py-3.5 sticky left-0 z-10 border-b border-slate-700/40 ${isSelected ? 'bg-blue-900/40' : i % 2 === 0 ? 'bg-slate-900/60' : 'bg-slate-900/80'}`}>
+                                  <div className="flex items-center gap-3">
+                                    <input 
+                                      type="checkbox" 
+                                      className="w-4 h-4 rounded border-slate-600 bg-slate-700/50 text-blue-500 focus:ring-blue-500 focus:ring-offset-slate-900 cursor-pointer"
+                                      checked={isSelected}
+                                      onChange={() => toggleRowSelection(rId)}
+                                    />
+                                    {isNewNs ? <span className="text-xs font-semibold text-blue-400 font-mono">{row.namespace}</span> : <span className="text-xs text-slate-600 font-mono pl-2">↳</span>}
+                                  </div>
                                 </td>
                                 <td className="px-5 py-3.5 border-b border-slate-700/40">
                                   <span className="text-sm text-slate-100 font-medium">{row.objectName}</span>
@@ -682,6 +860,11 @@ export function PropertyViewer() {
                                     <ValueBadge value={row.values[p.id] || 'N/A'} />
                                   </td>
                                 ))}
+                                <td className={`px-5 py-3.5 border-b border-slate-700/40 sticky right-0 z-10 text-right ${isSelected ? 'bg-blue-900/40' : i % 2 === 0 ? 'bg-slate-900/60' : 'bg-slate-900/80'}`}>
+                                  <button onClick={(e) => { e.stopPropagation(); setSelectedRawData(row.rawData); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors" title="View Raw JSON">
+                                    <FileJson className="w-4 h-4" />
+                                  </button>
+                                </td>
                               </tr>
                             );
                           })}
@@ -697,22 +880,51 @@ export function PropertyViewer() {
                 {/* CARD VIEW */}
                 {viewMode === 'cards' && (
                   <div className="space-y-3">
-                    {sortedRows.map((row, i) => (
-                      <div key={`${row.namespace}-${row.objectName}-${i}`} className={`rounded-xl border p-5 transition-all ${row.error ? 'border-red-500/30 bg-red-500/5' : 'border-slate-700/60 bg-gradient-to-r from-slate-800/40 to-slate-800/20 hover:border-slate-600 hover:shadow-lg hover:shadow-black/10'}`}>
+                    {/* Select All Card View Toggle */}
+                    <div className="flex items-center gap-3 px-2 py-1">
+                       <input 
+                         type="checkbox" 
+                         className="w-4 h-4 rounded border-slate-600 bg-slate-700/50 text-blue-500 focus:ring-blue-500 cursor-pointer"
+                         checked={allCurrentSelected}
+                         ref={input => { if (input) input.indeterminate = someCurrentSelected && !allCurrentSelected; }}
+                         onChange={handleSelectAll}
+                         id="selectAllCards"
+                       />
+                       <label htmlFor="selectAllCards" className="text-sm font-medium text-slate-300 cursor-pointer select-none">Select All Results</label>
+                    </div>
+
+                    {sortedRows.map((row, i) => {
+                      const rId = getRowId(row);
+                      const isSelected = selectedRowIds.has(rId);
+                      return (
+                      <div key={`${rId}-${i}`} 
+                           onClick={() => toggleRowSelection(rId)}
+                           className={`rounded-xl border p-5 transition-all cursor-pointer ${isSelected ? 'border-blue-500/60 bg-blue-500/10 shadow-lg shadow-blue-500/5' : row.error ? 'border-red-500/30 bg-red-500/5' : 'border-slate-700/60 bg-gradient-to-r from-slate-800/40 to-slate-800/20 hover:border-slate-600 hover:shadow-lg hover:shadow-black/10'}`}>
                         <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-700/40">
+                          <input 
+                             type="checkbox" 
+                             className="w-4 h-4 rounded border-slate-600 bg-slate-700/50 text-blue-500 focus:ring-blue-500 cursor-pointer pointer-events-none" // pointer-events-none lets the card handle the click
+                             checked={isSelected}
+                             readOnly
+                          />
                           <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 ring-1 ring-blue-500/20">{row.namespace}</span>
                           <span className="text-base font-semibold text-slate-100">{row.objectName}</span>
+                          <div className="ml-auto">
+                            <button onClick={(e) => { e.stopPropagation(); setSelectedRawData(row.rawData); }} className="p-1.5 text-slate-400 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors" title="View Raw JSON">
+                              <FileJson className="w-4 h-4" />
+                            </button>
+                          </div>
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-4">
                           {selectedPropertyDefs.map(p => (
                             <div key={p.id}>
                               <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5 font-medium">{p.label}</div>
-                              <ValueBadge value={row.values[p.id] || 'N/A'} />
+                              <ValueBadge value={row.values[p.id] || 'N/A'} onClick={(e) => e?.stopPropagation()} />
                             </div>
                           ))}
                         </div>
                       </div>
-                    ))}
+                    )})}
                     {sortedRows.length === 0 && (
                       <div className="flex flex-col items-center justify-center py-16 text-slate-500 bg-slate-800/30 rounded-xl border border-slate-700"><Search className="w-8 h-8 mb-3 opacity-50" /><p className="text-sm">No matching results</p></div>
                     )}
@@ -727,12 +939,43 @@ export function PropertyViewer() {
                 <AlertTriangle className="w-12 h-12 text-amber-400 mb-4" />
                 <h3 className="text-lg font-semibold text-slate-200 mb-2">No Objects Found</h3>
                 <p className="text-sm text-slate-400 mb-6">No {currentType.label}s were found in the selected namespaces.</p>
-                <button onClick={() => { setStep(1); setRows([]); setLogs([]); }} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors">Start New Scan</button>
+                <button onClick={() => { setStep(1); setRows([]); setLogs([]); setSelectedRowIds(new Set()); }} className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors">Start New Scan</button>
               </div>
             )}
           </div>
         )}
       </main>
+
+      {/* RAW JSON MODAL */}
+      {selectedRawData && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between p-4 border-b border-slate-800 bg-slate-900/80">
+              <h3 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+                <FileJson className="w-5 h-5 text-blue-400" />
+                Raw JSON Configuration
+              </h3>
+              <button onClick={() => setSelectedRawData(null)} className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 overflow-auto flex-1 bg-slate-950/50 relative">
+              <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap break-words">
+                {JSON.stringify(selectedRawData, null, 2)}
+              </pre>
+            </div>
+            <div className="p-4 border-t border-slate-800 bg-slate-900/80 flex justify-end">
+              <button onClick={() => {
+                navigator.clipboard.writeText(JSON.stringify(selectedRawData, null, 2));
+                toast.success('JSON copied to clipboard');
+              }} className="flex items-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 hover:border-slate-600 text-slate-200 rounded-lg text-sm font-medium transition-colors">
+                <Copy className="w-4 h-4" /> Copy to Clipboard
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

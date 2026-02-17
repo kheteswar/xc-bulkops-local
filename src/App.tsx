@@ -12,6 +12,7 @@ import { ConfigComparator } from './pages/ConfigComparator';
 import { HttpSanityChecker } from './pages/HttpSanityChecker';
 import { PrefixBuilder } from './pages/PrefixBuilder';
 import { HttpLbForge } from './pages/HttpLbForge';
+import { TimeTracker } from './pages/TimeTracker';
 
 function App() {
   return (
@@ -38,6 +39,7 @@ function App() {
               <Route path="/http-sanity-checker" element={<HttpSanityChecker />} />
               <Route path="/prefix-builder" element={<PrefixBuilder />} />
               <Route path="/http-lb-forge" element={<HttpLbForge />} />
+              <Route path="/time-tracker" element={<TimeTracker />} />
             </Routes>
           </div>
         </ToastProvider>
