@@ -1,92 +1,109 @@
-# XC App Store
-> A centralized hub for specialized apps and scripts designed for bulk operations and advanced tasks in F5 Distributed Cloud (XC).
+# F5 XC Bulk Operations Toolbox
 
-**Repository:** [https://github.com/kheteswar/xc-bulkops-local.git](https://github.com/kheteswar/xc-bulkops-local.git)
-
-A comprehensive, developer-centric toolkit designed to streamline operations, automate security auditing, and simplify bulk configuration management for **F5 Distributed Cloud (XC)**. 
-
-This React-based application acts as a "power console" that sits on top of the standard F5 XC API, filling the gaps for bulk operations, deep visibility, and rapid object creation.
+A powerful, React-based internal suite designed for F5 Distributed Cloud (XC) practitioners. This tool streamlines complex configuration management and professional activities like time tracking through a unified, modern interface.
 
 ---
 
-## 🚀 Key Features
+## 🚀 Installation & Setup
 
-This dashboard includes **8 specialized tools**:
+Follow these steps to get the environment running on your local machine.
 
-### 1. 🧱 Prefix Builder (Advanced)
-A robust engine for managing IP blocking and allow-listing at scale.
-* **Bulk Processing:** Import `.txt` or `.csv` files containing thousands of IPs/CIDRs.
-* **Auto-Splitting:** Automatically detects if an IP list exceeds the F5 XC API limit (1024 IPs per object) and splits them into multiple objects (e.g., `blocklist-1`, `blocklist-2`) while keeping them logically grouped.
-* **Smart Policy Attachment:** * Can create a **new Service Policy** or update an **existing one**.
-    * Handles the complex API schema transition from "Simple Mode" (`deny_list`) to "Advanced Mode" (`rule_list`) automatically to ensure compatibility.
-    * Supports explicitly setting rules to **Allow** or **Deny**.
-* **Validation:** Validates IPv4/IPv6 formats and prevents duplicate entries.
+### 1. Check Prerequisites
 
-### 2. 🛡️ Security Auditor
-An automated compliance engine that scans your Load Balancers against industry best practices.
-* **Rule Engine:** Evaluates configurations based on:
-    * **TLS/SSL:** Checks for HSTS headers, TLS 1.2+ enforcement, and valid certificates.
-    * **WAF:** Verifies WAF is attached and running in **Blocking** mode.
-    * **Origin Pools:** Checks for TLS usage on the origin side.
-    * **Bot Defense:** Ensures Bot defense policies are active.
-    * **Logging:** Validates that appropriate access logs are enabled.
-* **Reporting:** Generates a granular pass/fail report with severity levels.
+The tool requires **Node.js** and **npm** to run. Open your terminal and check if they are installed:
 
-### 3. ⚖️ Config Comparator
-A "Diff" tool for F5 XC objects (JSON Specifications).
-* **Cross-Context Comparison:** Compare objects between different namespaces or even completely different **Tenants**.
-* **Visual Diff:** Highlights specific lines (Additions in Green, Deletions in Red) in the JSON spec, making it essential for auditing changes before promoting from `staging` to `production`.
+```bash
+node -v
+npm -v
 
-### 4. 👁️ Config Visualizer
-A graph-based dependency mapper.
-* **Topology View:** Visualizes the complex web of relationships between a Load Balancer and its child objects (WAF Policies, Origin Pools, Certificates, Routes).
-* **Interactive:** Click on nodes to reveal object metadata and status.
+```
 
-### 5. 🔍 WAF Scanner
-A high-level operational dashboard for WAF status.
-* **Fleet Overview:** Scans all HTTP Load Balancers in a namespace.
-* **Status Indicators:** Instantly categorizes LBs into:
-    * 🔴 **No WAF:** Vulnerable.
-    * 🟡 **Monitoring:** WAF present but not blocking.
-    * 🟢 **Blocking:** Protected.
+**If not installed:**
 
-### 6. 📋 Property Viewer
-A spreadsheet-style attribute explorer.
-* **Grid View:** Flattens the complex JSON structure of Load Balancers into a sortable table.
-* **Quick Audit:** Easily see columns for "Domains", "HSTS Enabled", "WAF Mode", and "Certificate Expiry" across your entire fleet in one view.
-
-### 7. 🚚 Copy Config
-A migration helper utility.
-* **Deep Cloning:** Copies complex objects (like Alert Policies, Alert Receivers) from one namespace to another.
-* **Dependency Handling:** (Note: Future roadmap often includes resolving child dependencies during copy).
-
-### 8. 🧪 HTTP Sanity Checker
-A live traffic validation tool.
-* **Live Headers:** Makes real HTTP requests to your applications.
-* **Security Baseline:** Compares the actual response headers against a security baseline (e.g., checking for `Strict-Transport-Security`, `X-Content-Type-Options`, `X-Frame-Options`).
-
----
-
-## 🛠️ Technology Stack
-
-* **Frontend:** [React](https://reactjs.org/) (v18)
-* **Language:** [TypeScript](https://www.typescriptlang.org/)
-* **Build Tool:** [Vite](https://vitejs.dev/)
-* **Styling:** [Tailwind CSS](https://tailwindcss.com/)
-* **Icons:** [Lucide React](https://lucide.dev/)
-* **Routing:** [React Router DOM](https://reactrouter.com/)
-* **API Client:** Custom TypeScript wrapper around `fetch` with local proxy support.
-
----
-
-## ⚙️ Installation & Setup
-
-### 1. Prerequisites
-* Node.js (v16.0.0 or higher)
-* npm or yarn
-* An F5 Distributed Cloud Account (Tenant URL + API Token).
+* **macOS:** Install via [Homebrew](): `brew install node` or download the installer from [nodejs.org]().
+* **Windows:** Download and run the Windows Installer (.msi) from [nodejs.org]().
 
 ### 2. Clone the Repository
+
+Open your terminal and run the following command to download the source code:
+
 ```bash
-git clone [https://github.com/kheteswar/xc-bulkops-local.git](https://github.com/kheteswar/xc-bulkops-local.git)
-cd xc-bulkops-local
+git clone https://github.com/kheteswar/xc-app-store
+
+```
+
+### 3. Install Dependencies
+
+Navigate into the project folder and install the required Node.js packages:
+
+```bash
+cd xc-app-store
+npm install
+
+```
+
+### 4. Start the Application
+
+Launch the local development server:
+
+```bash
+npm run dev
+
+```
+
+### 5. Access the Tool
+
+Once the server starts, open your browser and navigate to the local URL provided in the terminal (typically):
+👉 **`http://localhost:5173`**
+
+---
+
+## 🛠 Features
+
+### 1. Weekly Time Tracker
+
+Designed to eliminate the friction of manual time entry, this tool allows you to manage an entire week's timesheet from a single grid.
+
+* **Searchable Dropdowns**: Quickly find Customers, Products, and Work Types by typing.
+* **Smart Upsert Logic**: Automatically detects if an entry is new, needs an update, or should be deleted.
+* **Manual Pre-fill**: Use the "Pre-fill from Last Week" button to instantly copy over account combinations used in the previous 7 days.
+* **Automatic Totals**: Real-time calculation of row totals, daily totals, and overall weekly effort.
+* **Session Security**: Option to remember your Bearer Token locally for seamless future access.
+
+### 2. Property Viewer
+
+Analyze and compare specific object properties across different F5 XC namespaces in a report-style view.
+
+* **Deep Inspection**: View full raw JSON configurations for any object directly in the tool.
+* **Selective Export**: Select specific data points and export them to CSV, Excel, or JSON formats.
+
+### 3. Security Auditor & WAF Scanner
+
+* **Security Auditor**: Runs automated checks against HTTP Load Balancer configurations to identify non-compliant security settings (e.g., weak TLS versions, WAF in monitoring mode).
+* **WAF Scanner**: Rapidly scans multiple namespaces to validate and report on the status of Web Application Firewall policies.
+
+### 4. Utilities
+
+* **HTTP LB Forge**: Build complex Load Balancer configurations using structured templates.
+* **Sanity Checker**: Test DNS and HTTP connectivity, supporting both live lookups and spoofed IP targets.
+* **Config Comparator**: A side-by-side JSON comparison utility to detect configuration drift between objects.
+
+---
+
+## 🏗 Architecture & Security
+
+* **Frontend**: React 18 with TypeScript for robust type safety.
+* **Styling**: Modern, responsive dark-themed UI powered by TailwindCSS and Lucide Icons.
+* **Backend Proxy**: A custom Vite middleware proxy routes all API requests through your local server to bypass browser CORS restrictions.
+* **Auth Handling**: The proxy intelligently manages different authentication standards:
+* **F5 XC APIs**: Uses `APIToken <token>` header.
+* **Time Tracker APIs**: Uses `Bearer <token>` header.
+
+
+
+---
+
+## 📝 Usage Notes
+
+* **Settings**: Use the **Settings (gear icon)** in each tool to update your Tenant ID or API Tokens.
+* **Hardcoded Endpoints**: The Time Tracker is hardcoded to route through the secure proxy at `time-tracker.mgdsvc-ai.f5sdclabs.com` to ensure data integrity.
