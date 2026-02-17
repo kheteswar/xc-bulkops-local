@@ -1,4 +1,4 @@
-# F5 XC Bulk Operations Toolbox
+# F5 XC App Store - collection of F5 XC Apps and scripts
 
 A powerful, React-based internal suite designed for F5 Distributed Cloud (XC) practitioners. This tool streamlines complex configuration management and professional activities like time tracking through a unified, modern interface.
 
