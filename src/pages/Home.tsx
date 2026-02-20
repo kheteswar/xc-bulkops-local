@@ -265,38 +265,7 @@ export function Home() {
         </div>
       </section>
 
-      <footer className="border-t border-slate-800 pt-6 pb-12">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-          <div className="flex items-center gap-2">
-            <span className="font-semibold text-slate-300">XC App Store</span>
-            <span className="px-2 py-0.5 bg-slate-800 rounded text-xs text-slate-500 font-mono">
-              v1.0.0
-            </span>
-          </div>
-          <p className="text-sm text-slate-500">
-            This app store is not affiliated with or endorsed by F5, Inc. Use at your own risk.
-          </p>
-          <div className="flex items-center gap-4 text-sm">
-            <a
-              href="https://docs.cloud.f5.com/docs-v2/api"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-slate-400 hover:text-slate-200 transition-colors"
-            >
-              F5 XC API Docs
-            </a>
-            <span className="text-slate-600">-</span>
-            <a
-              href="https://github.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-slate-400 hover:text-slate-200 transition-colors"
-            >
-              GitHub
-            </a>
-          </div>
-        </div>
-      </footer>
+      {/* Footer moved to shared component */}
     </main>
   );
 }

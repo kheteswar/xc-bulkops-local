@@ -2,8 +2,14 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { 
   Save, Download, Upload, Plus, Trash2, Send, Clock, 
   Settings, AlertCircle, ChevronLeft, ChevronRight, KeyRound, Loader2,
-  ChevronDown, Search, Globe, RefreshCw, RotateCcw
+  ChevronDown, Search, Globe, RefreshCw, RotateCcw, BarChart2,
+  TrendingUp, Users, Building2, Calendar
 } from 'lucide-react';
+import {
+  AreaChart, Area, BarChart, Bar, LineChart, Line,
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, PieChart, Pie, Cell
+} from 'recharts';
 import { useToast } from '../context/ToastContext';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -28,6 +34,71 @@ const DEFAULT_WORK_TYPES = [
 
 const DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const;
 type Day = typeof DAYS[number];
+
+const INTERNAL_CUSTOMER = 'F5 Networks, Inc. - Headquarters';
+
+const CHART_COLORS = [
+  '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#06b6d4', '#f97316', '#ec4899', '#84cc16', '#14b8a6',
+  '#a78bfa', '#fb923c', '#34d399', '#f472b6', '#60a5fa'
+];
+
+type Duration = 'this_week' | 'last_week' | 'last_month' | 'last_quarter' | 'this_year';
+
+interface DailyBreakdownItem { id: string; label: string; hours: number; }
+interface DailyTotal {
+  date: string;
+  totalHours: number;
+  byCustomer: DailyBreakdownItem[];
+  byProduct: DailyBreakdownItem[];
+  byWorkType: DailyBreakdownItem[];
+}
+interface SummaryResponse {
+  range: { startDate: string; endDate: string };
+  dailyTotals: DailyTotal[];
+  monthlyTotals: { month: string; totalHours: number }[];
+}
+
+// Compute date range from duration preset (client-side, no server needed)
+const getDateRangeForDuration = (d: Duration): { startDate: string; endDate: string } => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const fmt = (dt: Date) => {
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const day = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  switch (d) {
+    case 'this_week': {
+      const start = getStartOfWeek(today);
+      return { startDate: fmt(start), endDate: fmt(today) };
+    }
+    case 'last_week': {
+      // Get previous week's Monday to Sunday
+      const end = new Date(getStartOfWeek(today));
+      end.setDate(end.getDate() - 1); // Last week's Sunday
+      const start = new Date(end);
+      start.setDate(start.getDate() - 6); // Last week's Monday
+      return { startDate: fmt(start), endDate: fmt(end) };
+    }
+    case 'last_month': {
+      const start = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const end   = new Date(today.getFullYear(), today.getMonth(), 0);
+      return { startDate: fmt(start), endDate: fmt(end) };
+    }
+    case 'last_quarter': {
+      // Rolling last 90 days (more useful than strict calendar quarter)
+      const start = new Date(today);
+      start.setDate(start.getDate() - 89);
+      return { startDate: fmt(start), endDate: fmt(today) };
+    }
+    case 'this_year': {
+      const start = new Date(today.getFullYear(), 0, 1);
+      return { startDate: fmt(start), endDate: fmt(today) };
+    }
+  }
+};
 
 interface TimeRow {
   id: string;
@@ -221,6 +292,560 @@ function SearchableDropdown({ value, onChange, options, placeholder, isLoading, 
   );
 }
 
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REPORTS PANEL COMPONENT  (uses GET /api/time-entries/summary — user-scoped)
+// ═══════════════════════════════════════════════════════════════════════════
+
+interface ReportsPanelProps { token: string; }
+
+function ReportsPanel({ token }: ReportsPanelProps) {
+  const [duration, setDuration]         = useState<Duration>('last_month');
+  const [summary, setSummary]           = useState<SummaryResponse | null>(null);
+  const [isLoading, setIsLoading]       = useState(false);
+  const [hasFetched, setHasFetched]     = useState(false);
+  const [error, setError]               = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
+  const [trendChartType, setTrendChartType]     = useState<'bar' | 'line'>('bar');
+
+  const { startDate, endDate } = useMemo(() => getDateRangeForDuration(duration), [duration]);
+
+  const fetchReportData = useCallback(async () => {
+    if (!token) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isExternal: true,
+          targetUrl: `https://${API_BASE_DOMAIN}/api/time-entries/summary?startDate=${startDate}&endDate=${endDate}`,
+          token,
+          method: 'GET'
+        })
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.message || `HTTP ${res.status}`);
+      }
+      const data: SummaryResponse = await res.json();
+      setSummary(data);
+      setHasFetched(true);
+    } catch (e: any) {
+      setError(e.message || 'Failed to load report data');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [token, startDate, endDate]);
+
+  useEffect(() => { fetchReportData(); }, [fetchReportData]);
+
+  // ── All aggregations derived from dailyTotals ────────────────────────────
+
+  const totalHours = useMemo(() =>
+    (summary?.dailyTotals ?? []).reduce((s, d) => s + d.totalHours, 0), [summary]);
+
+  const internalHours = useMemo(() =>
+    (summary?.dailyTotals ?? []).reduce((s, d) =>
+      s + (d.byCustomer.find(c => c.label === INTERNAL_CUSTOMER)?.hours ?? 0), 0), [summary]);
+
+  const externalHours = totalHours - internalHours;
+
+  // Extra KPIs
+  const avgDailyHours = useMemo(() => {
+    const activeDays = (summary?.dailyTotals ?? []).filter(d => d.totalHours > 0).length;
+    return activeDays > 0 ? Math.round((totalHours / activeDays) * 10) / 10 : 0;
+  }, [summary, totalHours]);
+
+  const activeDaysCount = useMemo(() =>
+    (summary?.dailyTotals ?? []).filter(d => d.totalHours > 0).length, [summary]);
+
+  const peakWeekHours = useMemo(() => {
+    const weekMap: Record<string, number> = {};
+    (summary?.dailyTotals ?? []).forEach(d => {
+      const dt = new Date(d.date + 'T00:00:00');
+      const ws = getStartOfWeek(dt);
+      const key = `${ws.getMonth() + 1}/${ws.getDate()}`;
+      weekMap[key] = (weekMap[key] ?? 0) + d.totalHours;
+    });
+    const max = Math.max(0, ...Object.values(weekMap));
+    return Math.round(max * 10) / 10;
+  }, [summary]);
+
+  const externalPct = totalHours > 0 ? Math.round((externalHours / totalHours) * 100) : 0;
+  const customerData = useMemo(() => {
+    const map: Record<string, number> = {};
+    (summary?.dailyTotals ?? []).forEach(d =>
+      d.byCustomer.filter(c => c.label !== INTERNAL_CUSTOMER).forEach(c => {
+        map[c.label] = (map[c.label] ?? 0) + c.hours;
+      })
+    );
+    return Object.entries(map)
+      .map(([label, hours]) => ({ label, hours: Math.round(hours * 10) / 10 }))
+      .sort((a, b) => b.hours - a.hours);
+  }, [summary]);
+
+  // Hours per work type across all days
+  const workTypeData = useMemo(() => {
+    const map: Record<string, number> = {};
+    (summary?.dailyTotals ?? []).forEach(d =>
+      d.byWorkType.forEach(w => { map[w.label] = (map[w.label] ?? 0) + w.hours; })
+    );
+    return Object.entries(map)
+      .map(([name, hours]) => ({ name, hours: Math.round(hours * 10) / 10 }))
+      .sort((a, b) => b.hours - a.hours)
+      .slice(0, 10);
+  }, [summary]);
+
+  // Weekly trend — group dailyTotals by week start, sum totalHours
+  const weeklyTrendData = useMemo(() => {
+    const weekMap: Record<string, { week: string; hours: number; _sort: number }> = {};
+    (summary?.dailyTotals ?? []).forEach(d => {
+      const dt = new Date(d.date + 'T00:00:00');
+      const ws = getStartOfWeek(dt);
+      const key = `${ws.getMonth() + 1}/${ws.getDate()}`;
+      if (!weekMap[key]) weekMap[key] = { week: key, hours: 0, _sort: ws.getTime() };
+      weekMap[key].hours = Math.round((weekMap[key].hours + d.totalHours) * 100) / 100;
+    });
+    return Object.values(weekMap).sort((a, b) => a._sort - b._sort);
+  }, [summary]);
+
+  // Per-customer per-week stacked chart
+  const customerWeeklyData = useMemo(() => {
+    const weekMap: Record<string, Record<string, number> & { _sort: number }> = {};
+    (summary?.dailyTotals ?? []).forEach(d => {
+      const dt = new Date(d.date + 'T00:00:00');
+      const ws = getStartOfWeek(dt);
+      const key = `${ws.getMonth() + 1}/${ws.getDate()}`;
+      if (!weekMap[key]) weekMap[key] = { _sort: ws.getTime() } as any;
+      d.byCustomer.forEach(c => {
+        // Exclude Internal account from the weekly customer breakdown
+        if (c.label === INTERNAL_CUSTOMER || c.label === 'Internal') return;
+        const name = c.label;
+        weekMap[key][name] = Math.round(((weekMap[key][name] ?? 0) + c.hours) * 100) / 100;
+      });
+    });
+    return Object.entries(weekMap)
+      .sort((a, b) => a[1]._sort - b[1]._sort)
+      .map(([week, vals]) => { const { _sort, ...rest } = vals; return { week, ...rest }; });
+  }, [summary]);
+
+  const customerKeys = useMemo(() => {
+    const keys = new Set<string>();
+    customerWeeklyData.forEach(row =>
+      Object.keys(row).filter(k => k !== 'week' && k !== 'Internal').forEach(k => keys.add(k))
+    );
+    return Array.from(keys);
+  }, [customerWeeklyData]);
+
+  // Internal vs External per week — for the new trend tracker
+  const internalVsExternalWeekly = useMemo(() => {
+    const weekMap: Record<string, { week: string; External: number; Internal: number; _sort: number }> = {};
+    (summary?.dailyTotals ?? []).forEach(d => {
+      const dt = new Date(d.date + 'T00:00:00');
+      const ws = getStartOfWeek(dt);
+      const key = `${ws.getMonth() + 1}/${ws.getDate()}`;
+      if (!weekMap[key]) weekMap[key] = { week: key, External: 0, Internal: 0, _sort: ws.getTime() };
+      d.byCustomer.forEach(c => {
+        const h = c.hours ?? 0;
+        if (c.label === INTERNAL_CUSTOMER) weekMap[key].Internal = Math.round((weekMap[key].Internal + h) * 100) / 100;
+        else weekMap[key].External = Math.round((weekMap[key].External + h) * 100) / 100;
+      });
+    });
+    return Object.values(weekMap).sort((a, b) => a._sort - b._sort);
+  }, [summary]);
+
+  // Filtered view when a customer is selected
+  const filteredCustomerWeeklyData = useMemo(() => {
+    if (!selectedCustomer) return customerWeeklyData;
+    return customerWeeklyData.map(row => {
+      const { week, ...rest } = row;
+      const filtered: Record<string, any> = { week };
+      if (selectedCustomer === 'Internal') {
+        if (rest['Internal'] !== undefined) filtered['Internal'] = rest['Internal'];
+      } else {
+        if (rest[selectedCustomer] !== undefined) filtered[selectedCustomer] = rest[selectedCustomer];
+      }
+      return filtered;
+    });
+  }, [customerWeeklyData, selectedCustomer]);
+
+  const filteredCustomerKeys = useMemo(() =>
+    selectedCustomer && selectedCustomer !== 'Internal' ? [selectedCustomer] : customerKeys,
+    [customerKeys, selectedCustomer]);
+
+  // Day-of-week pattern
+  const dowData = useMemo(() => {
+    const dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    const map: Record<string, number> = {};
+    (summary?.dailyTotals ?? []).forEach(d => {
+      const dt = new Date(d.date + 'T00:00:00');
+      const dow = dayNames[(dt.getDay() + 6) % 7];
+      map[dow] = (map[dow] ?? 0) + d.totalHours;
+    });
+    return dayNames.map(day => ({ day, hours: Math.round((map[day] ?? 0) * 10) / 10 }));
+  }, [summary]);
+
+  const splitPieData = [
+    { name: 'External',      value: Math.round(externalHours * 10) / 10 },
+    { name: 'Internal (F5)', value: Math.round(internalHours * 10) / 10 },
+  ];
+
+  const DURATION_OPTIONS: { value: Duration; label: string }[] = [
+    { value: 'this_week',    label: 'This Week'    },
+    { value: 'last_week',    label: 'Last Week'    },
+    { value: 'last_month',   label: 'Last Month'   },
+    { value: 'last_quarter', label: 'Last 90 Days' },
+    { value: 'this_year',    label: 'This Year'    },
+  ];
+  const PIE_COLORS   = ['#3b82f6', '#f59e0b'];
+  const tooltipStyle = { backgroundColor: '#1e293b', border: '1px solid #334155', borderRadius: '8px', color: '#e2e8f0', fontSize: '12px' };
+
+  return (
+    <div className="space-y-6">
+      {/* Duration Selector Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-slate-800/30 p-4 rounded-xl border border-slate-700/50">
+        <div>
+          <h2 className="text-base font-semibold text-slate-200 flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-blue-400" /> Time Analytics
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">{startDate} → {endDate}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="flex bg-slate-900 border border-slate-700 rounded-lg p-1 gap-1">
+            {DURATION_OPTIONS.map(opt => (
+              <button key={opt.value} onClick={() => setDuration(opt.value)}
+                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  duration === opt.value
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-900/50'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                }`}>{opt.label}
+              </button>
+            ))}
+          </div>
+          <button onClick={fetchReportData} disabled={isLoading}
+            className="p-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10 rounded-lg transition-colors" title="Refresh">
+            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* States */}
+      {isLoading ? (
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+          <span className="ml-3 text-sm text-slate-400">Loading analytics...</span>
+        </div>
+      ) : error ? (
+        <div className="flex flex-col items-center justify-center py-16 text-red-400 gap-3">
+          <AlertCircle className="w-10 h-10 opacity-60" />
+          <p className="text-sm font-medium">{error}</p>
+          <button onClick={fetchReportData} className="text-xs text-blue-400 hover:underline">Try again</button>
+        </div>
+      ) : !hasFetched ? null : totalHours === 0 ? (
+        <div className="flex flex-col items-center justify-center py-24 text-slate-500">
+          <BarChart2 className="w-12 h-12 mb-3 opacity-30" />
+          <p className="text-sm">No time entries found for this period.</p>
+        </div>
+      ) : (
+        <>
+          {/* Summary Cards — 8 KPIs */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {[
+              { label: 'Total Hours',      value: `${Math.round(totalHours * 10) / 10}h`,    icon: Clock,      color: 'text-blue-400',    bg: 'bg-blue-500/10 border-blue-500/20',      sub: 'across all entries'              },
+              { label: 'External Hours',   value: `${Math.round(externalHours * 10) / 10}h`, icon: Users,      color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', sub: `${externalPct}% of total`        },
+              { label: 'Internal Hours',   value: `${Math.round(internalHours * 10) / 10}h`, icon: Building2,  color: 'text-amber-400',   bg: 'bg-amber-500/10 border-amber-500/20',    sub: `${100 - externalPct}% of total`  },
+              { label: 'Customers Served', value: customerData.length,                       icon: Globe,      color: 'text-purple-400',  bg: 'bg-purple-500/10 border-purple-500/20',  sub: 'external accounts'               },
+              { label: 'Avg Daily Hours',  value: `${avgDailyHours}h`,                       icon: TrendingUp, color: 'text-cyan-400',    bg: 'bg-cyan-500/10 border-cyan-500/20',      sub: 'on active days'                  },
+              { label: 'Active Days',      value: activeDaysCount,                           icon: Calendar,   color: 'text-pink-400',    bg: 'bg-pink-500/10 border-pink-500/20',      sub: 'days with logged hours'          },
+              { label: 'Peak Week',        value: `${peakWeekHours}h`,                       icon: BarChart2,  color: 'text-orange-400',  bg: 'bg-orange-500/10 border-orange-500/20',  sub: 'highest single week'             },
+              { label: 'Ext/Int Ratio',    value: `${externalPct}/${100 - externalPct}`,     icon: RefreshCw,  color: 'text-violet-400',  bg: 'bg-violet-500/10 border-violet-500/20',  sub: 'customer vs internal %'          },
+            ].map(card => (
+              <div key={card.label} className={`${card.bg} border rounded-xl p-3.5 flex items-start gap-3`}>
+                <card.icon className={`w-4 h-4 ${card.color} mt-1 flex-shrink-0`} />
+                <div className="min-w-0">
+                  <p className="text-xl font-bold text-slate-100 leading-tight">{card.value}</p>
+                  <p className="text-xs font-medium text-slate-300 mt-0.5">{card.label}</p>
+                  <p className="text-xs text-slate-500 mt-0.5 truncate">{card.sub}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Row 1: Weekly trend */}
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+            <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-blue-400" /> Weekly Hours Trend
+            </h3>
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart data={weeklyTrendData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                <defs>
+                  <linearGradient id="trendGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%"  stopColor="#3b82f6" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}   />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                <XAxis dataKey="week" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={{ stroke: '#334155' }} tickLine={false} />
+                <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => [`${v}h`, 'Total Hours']} />
+                <Area type="monotone" dataKey="hours" stroke="#3b82f6" fill="url(#trendGrad)" strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 0 }} />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+
+          {/* Row 2: Internal vs External Weekly Trend — with bar/line toggle */}
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+            <div className="flex items-start justify-between mb-1">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-amber-400" /> Internal vs External — Weekly Breakdown
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Week-by-week split of customer-facing vs internal (F5) hours</p>
+              </div>
+              {/* Bar / Line toggle */}
+              <div className="flex bg-slate-900 border border-slate-700 rounded-lg p-0.5 gap-0.5 flex-shrink-0">
+                <button onClick={() => setTrendChartType('bar')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${
+                    trendChartType === 'bar' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  }`}>
+                  <BarChart2 className="w-3 h-3" /> Bar
+                </button>
+                <button onClick={() => setTrendChartType('line')}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-all ${
+                    trendChartType === 'line' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-slate-200'
+                  }`}>
+                  <TrendingUp className="w-3 h-3" /> Line
+                </button>
+              </div>
+            </div>
+
+            <ResponsiveContainer width="100%" height={260}>
+              {trendChartType === 'bar' ? (
+                <BarChart data={internalVsExternalWeekly} margin={{ top: 10, right: 10, left: 0, bottom: 5 }} barGap={2}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="week" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={{ stroke: '#334155' }} tickLine={false} />
+                  <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: string) => [`${v}h`, name]} labelFormatter={(l) => `Week of ${l}`} />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                  <Bar dataKey="External" stackId="a" fill="#3b82f6" maxBarSize={40} radius={[0, 0, 0, 0]} />
+                  <Bar dataKey="Internal" stackId="a" fill="#f59e0b" maxBarSize={40} radius={[3, 3, 0, 0]} />
+                </BarChart>
+              ) : (
+                <LineChart data={internalVsExternalWeekly} margin={{ top: 10, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" />
+                  <XAxis dataKey="week" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={{ stroke: '#334155' }} tickLine={false} />
+                  <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: string) => [`${v}h`, name]} labelFormatter={(l) => `Week of ${l}`} />
+                  <Legend wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }} />
+                  <Line type="monotone" dataKey="External" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#3b82f6', strokeWidth: 0 }} activeDot={{ r: 5, strokeWidth: 0 }} />
+                  <Line type="monotone" dataKey="Internal" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3, fill: '#f59e0b', strokeWidth: 0 }} activeDot={{ r: 5, strokeWidth: 0 }} />
+                </LineChart>
+              )}
+            </ResponsiveContainer>
+
+            {/* Summary ratio row */}
+            <div className="mt-4 pt-4 border-t border-slate-700/50 grid grid-cols-3 gap-4 text-center">
+              <div>
+                <p className="text-lg font-bold text-blue-400">{Math.round(externalHours * 10) / 10}h</p>
+                <p className="text-xs text-slate-500 mt-0.5">Total External</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-slate-200">
+                  {totalHours > 0 ? `${externalPct}% / ${100 - externalPct}%` : '—'}
+                </p>
+                <p className="text-xs text-slate-500 mt-0.5">Ext / Int Ratio</p>
+              </div>
+              <div>
+                <p className="text-lg font-bold text-amber-400">{Math.round(internalHours * 10) / 10}h</p>
+                <p className="text-xs text-slate-500 mt-0.5">Total Internal</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Row 3: Internal vs External donut + Hours by Customer */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-amber-400" /> Internal vs External Split
+              </h3>
+              <div className="flex items-center gap-6">
+                <ResponsiveContainer width="50%" height={180}>
+                  <PieChart>
+                    <Pie data={splitPieData} cx="50%" cy="50%" innerRadius={50} outerRadius={78} paddingAngle={3} dataKey="value">
+                      {splitPieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i]} stroke="transparent" />)}
+                    </Pie>
+                    <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => [`${v}h`, '']} />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex-1 space-y-3">
+                  {splitPieData.map((item, i) => (
+                    <div key={item.name}>
+                      <div className="flex justify-between items-center mb-1">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: PIE_COLORS[i] }} />
+                          <span className="text-xs text-slate-400">{item.name}</span>
+                        </div>
+                        <span className="text-sm font-bold text-slate-200">{item.value}h</span>
+                      </div>
+                      <div className="w-full bg-slate-700 rounded-full h-1.5">
+                        <div className="h-1.5 rounded-full transition-all" style={{
+                          width: `${totalHours > 0 ? (item.value / totalHours) * 100 : 0}%`,
+                          backgroundColor: PIE_COLORS[i]
+                        }} />
+                      </div>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        {totalHours > 0 ? ((item.value / totalHours) * 100).toFixed(1) : 0}%
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+                <Users className="w-4 h-4 text-emerald-400" /> Hours by Customer (External)
+              </h3>
+              {customerData.length === 0 ? (
+                <p className="text-xs text-slate-500 italic">No external customer hours found.</p>
+              ) : (
+                <div className="space-y-2.5 max-h-52 overflow-y-auto pr-1 custom-scrollbar">
+                  {customerData.map((item, i) => (
+                    <div key={item.label}>
+                      <div className="flex justify-between items-center mb-1">
+                        <span className="text-xs text-slate-400 truncate max-w-[65%]" title={item.label}>{item.label}</span>
+                        <span className="text-xs font-bold text-slate-200 ml-2 flex-shrink-0">{item.hours}h</span>
+                      </div>
+                      <div className="w-full bg-slate-700 rounded-full h-2">
+                        <div className="h-2 rounded-full transition-all" style={{
+                          width: `${customerData[0].hours > 0 ? (item.hours / customerData[0].hours) * 100 : 0}%`,
+                          backgroundColor: CHART_COLORS[i % CHART_COLORS.length]
+                        }} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Row 4: Work Type + Day of Week */}
+          <div className="grid md:grid-cols-2 gap-4">
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+                <Calendar className="w-4 h-4 text-purple-400" /> Hours by Work Type
+              </h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={workTypeData} layout="vertical" margin={{ top: 0, right: 20, left: 10, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                  <XAxis type="number" tick={{ fill: '#64748b', fontSize: 10 }} axisLine={false} tickLine={false} />
+                  <YAxis type="category" dataKey="name" tick={{ fill: '#94a3b8', fontSize: 10 }} axisLine={false} tickLine={false} width={130}
+                    tickFormatter={(v: string) => v.length > 18 ? v.slice(0, 17) + '…' : v} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => [`${v}h`, 'Hours']} />
+                  <Bar dataKey="hours" radius={[0, 4, 4, 0]} maxBarSize={18}>
+                    {workTypeData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+              <h3 className="text-sm font-semibold text-slate-300 mb-4 flex items-center gap-2">
+                <BarChart2 className="w-4 h-4 text-cyan-400" /> Hours by Day of Week
+              </h3>
+              <ResponsiveContainer width="100%" height={220}>
+                <BarChart data={dowData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="day" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => [`${v}h`, 'Hours']} />
+                  <Bar dataKey="hours" radius={[4, 4, 0, 0]} maxBarSize={40}>
+                    {dowData.map((entry, i) => (
+                      <Cell key={i}
+                        fill={entry.day === 'Sat' || entry.day === 'Sun' ? '#475569' : '#3b82f6'}
+                        opacity={entry.hours === 0 ? 0.3 : 1} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Row 5: Weekly Customer Breakdown — click to filter */}
+          {customerWeeklyData.length > 0 && customerKeys.length > 0 && (
+            <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-300 flex items-center gap-2">
+                    <BarChart2 className="w-4 h-4 text-blue-400" /> Weekly Customer Hours Breakdown
+                  </h3>
+                  {selectedCustomer && (
+                    <p className="text-xs text-blue-400 mt-0.5">
+                      Filtered: <span className="font-medium">{selectedCustomer}</span>
+                    </p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  {selectedCustomer && (
+                    <button
+                      onClick={() => setSelectedCustomer(null)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 border border-slate-600 rounded-lg transition-colors"
+                    >
+                      <RotateCcw className="w-3 h-3" /> Reset Filter
+                    </button>
+                  )}
+                  {!selectedCustomer && (
+                    <p className="text-xs text-slate-500 italic">Click a legend item to filter</p>
+                  )}
+                </div>
+              </div>
+
+              <ResponsiveContainer width="100%" height={280}>
+                <BarChart data={filteredCustomerWeeklyData} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                  <XAxis dataKey="week" tick={{ fill: '#64748b', fontSize: 11 }} axisLine={{ stroke: '#334155' }} tickLine={false} />
+                  <YAxis tick={{ fill: '#64748b', fontSize: 11 }} axisLine={false} tickLine={false} />
+                  <Tooltip contentStyle={tooltipStyle} />
+                  <Legend
+                    wrapperStyle={{ fontSize: '11px', paddingTop: '10px', cursor: 'pointer' }}
+                    onClick={(e) => {
+                      const name = e.dataKey as string;
+                      setSelectedCustomer(prev => prev === name ? null : name);
+                    }}
+                    formatter={(value: string) => (
+                      <span style={{
+                        color: selectedCustomer && selectedCustomer !== value ? '#475569' : '#cbd5e1',
+                        fontWeight: selectedCustomer === value ? '600' : '400',
+                        textDecoration: selectedCustomer === value ? 'underline' : 'none'
+                      }}>{value}</span>
+                    )}
+                  />
+                  {filteredCustomerKeys.slice(0, 10).map((customer, i) => (
+                    <Bar
+                      key={customer}
+                      dataKey={customer}
+                      stackId="a"
+                      fill={CHART_COLORS[(customerKeys.indexOf(customer) + 1) % CHART_COLORS.length]}
+                      maxBarSize={40}
+                      radius={i === filteredCustomerKeys.length - 1 && (internalHours === 0 || selectedCustomer !== null) ? [3, 3, 0, 0] : [0, 0, 0, 0]}
+                      style={{ cursor: 'pointer' }}
+                    />
+                  ))}
+                  {internalHours > 0 && (!selectedCustomer || selectedCustomer === 'Internal') && (
+                    <Bar dataKey="Internal" stackId="a" fill="#f59e0b" radius={[3, 3, 0, 0]} maxBarSize={40} style={{ cursor: 'pointer' }} />
+                  )}
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════
@@ -232,6 +857,7 @@ export function TimeTracker() {
   // App Initialization State
   const [isInitialized, setIsInitialized] = useState(false);
   const [isConfigured, setIsConfigured] = useState(false);
+  const [activeTab, setActiveTab] = useState<'timesheet' | 'reports'>('timesheet');
 
   // API State
   const [token, setToken] = useState('');
@@ -823,13 +1449,41 @@ export function TimeTracker() {
           </div>
 
           <div className="flex items-center gap-3">
-            <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={importTemplate} />
-            <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors">
-              <Upload className="w-4 h-4" /> Import Setup
-            </button>
-            <button onClick={exportTemplate} className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors">
-              <Download className="w-4 h-4" /> Export Setup
-            </button>
+            {/* Tab Switcher */}
+            <div className="flex bg-slate-900 border border-slate-700 rounded-lg p-1 gap-1">
+              <button
+                onClick={() => setActiveTab('timesheet')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  activeTab === 'timesheet'
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-900/50'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5" /> Timesheet
+              </button>
+              <button
+                onClick={() => setActiveTab('reports')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md transition-all ${
+                  activeTab === 'reports'
+                    ? 'bg-blue-600 text-white shadow-sm shadow-blue-900/50'
+                    : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700'
+                }`}
+              >
+                <BarChart2 className="w-3.5 h-3.5" /> Reports
+              </button>
+            </div>
+
+            {activeTab === 'timesheet' && (
+              <>
+                <input type="file" accept=".json" className="hidden" ref={fileInputRef} onChange={importTemplate} />
+                <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors">
+                  <Upload className="w-4 h-4" /> Import Setup
+                </button>
+                <button onClick={exportTemplate} className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-colors">
+                  <Download className="w-4 h-4" /> Export Setup
+                </button>
+              </>
+            )}
             <button onClick={() => setShowSettings(!showSettings)} className={`p-2 rounded-lg transition-colors border ${showSettings ? 'bg-blue-500/20 border-blue-500/50 text-blue-400' : 'bg-slate-700 border-slate-600 hover:bg-slate-600'}`}>
               <Settings className="w-5 h-5" />
             </button>
@@ -863,6 +1517,12 @@ export function TimeTracker() {
             </div>
           </div>
         )}
+
+        {/* Reports Tab */}
+        {activeTab === 'reports' && <ReportsPanel token={token} />}
+
+        {/* Timesheet Tab Content */}
+        {activeTab === 'timesheet' && <>
 
         {/* Week Navigator */}
         <div className="flex items-center justify-between bg-slate-800/30 p-4 rounded-xl border border-slate-700/50 relative">
@@ -1017,6 +1677,8 @@ export function TimeTracker() {
             Submit Timesheet for Week
           </button>
         </div>
+
+        </> /* end timesheet tab */}
 
       </div>
     </div>

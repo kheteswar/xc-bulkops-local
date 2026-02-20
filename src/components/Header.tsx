@@ -1,14 +1,26 @@
 import { Link, useLocation } from 'react-router-dom';
-import { Plus, ExternalLink } from 'lucide-react';
-import { Clock } from 'lucide-react';
+import { ExternalLink, Clock, ChevronDown } from 'lucide-react';
 
 export function Header() {
   const location = useLocation();
 
-  const navLinks = [
-    { to: '/', label: 'Tools', hash: '#tools' },
+  // We are putting the other links here
+  const otherLinks = [
     { to: '/', label: 'Backup Vault', hash: '#backup-vault' },
     { to: '/', label: 'Settings', hash: '#settings' },
+  ];
+
+  // Here is our new hidden drawer full of tools!
+  const toolsList = [
+    { to: '/waf-scanner', label: 'WAF Scanner' },
+    { to: '/config-visualizer', label: 'Config Visualizer' },
+    { to: '/copy-config', label: 'Copy Config' },
+    { to: '/security-auditor', label: 'Security Auditor' },
+    { to: '/property-viewer', label: 'Property Viewer' },
+    { to: '/config-comparator', label: 'Config Comparator' },
+    { to: '/http-sanity-checker', label: 'HTTP Sanity Checker' },
+    { to: '/prefix-builder', label: 'Prefix Builder' },
+    { to: '/http-lb-forge', label: 'HTTP LB Forge' },
   ];
 
   return (
@@ -17,31 +29,13 @@ export function Header() {
         <Link to="/" className="flex items-center gap-3">
           <div className="w-10 h-10 text-blue-500">
             <svg viewBox="0 0 40 40" className="w-full h-full">
-              <rect
-                x="2"
-                y="2"
-                width="36"
-                height="36"
-                rx="8"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                fill="none"
-              />
-              <path
-                d="M12 20h16M20 12v16"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              />
+              <rect x="2" y="2" width="36" height="36" rx="8" stroke="currentColor" strokeWidth="2.5" fill="none" />
+              <path d="M12 20h16M20 12v16" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
             </svg>
           </div>
           <div className="flex flex-col">
-            <span className="text-lg font-bold text-slate-100 tracking-tight">
-              XC App Store
-            </span>
-            <span className="text-xs text-slate-500 font-medium">
-              F5 XC Apps & Scripts
-            </span>
+            <span className="text-lg font-bold text-slate-100 tracking-tight">XC App Store</span>
+            <span className="text-xs text-slate-500 font-medium">F5 XC Apps & Scripts</span>
           </div>
         </Link>
 
@@ -50,7 +44,32 @@ export function Header() {
             <Clock className="w-4 h-4" />
             Time Tracker
           </Link>
-          {navLinks.map(link => (
+
+          {/* This is the magic Tools dropdown container! */}
+          <div className="relative group">
+            <button className="flex items-center gap-1 px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md transition-colors">
+              Tools
+              <ChevronDown className="w-4 h-4" />
+            </button>
+            
+            {/* This is the hidden box that appears when you hover */}
+            <div className="absolute left-0 mt-2 w-48 bg-slate-800 border border-slate-700 rounded-md shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50">
+              <div className="py-1">
+                {toolsList.map(tool => (
+                  <Link
+                    key={tool.label}
+                    to={tool.to}
+                    className="block px-4 py-2 text-sm text-slate-300 hover:bg-slate-700 hover:text-white"
+                  >
+                    {tool.label}
+                  </Link>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Generating the rest of the standard links */}
+          {otherLinks.map(link => (
             <Link
               key={link.label}
               to={link.to + (link.hash || '')}
@@ -59,6 +78,7 @@ export function Header() {
               {link.label}
             </Link>
           ))}
+          
           <a
             href="https://docs.cloud.f5.com/docs-v2/api"
             target="_blank"
