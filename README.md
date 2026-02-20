@@ -4,26 +4,40 @@ A powerful, React-based internal suite designed for F5 Distributed Cloud (XC) pr
 
 ---
 
-## 🚀 Installation & Setup
+## 🛠️ Installation & Setup
 
-Follow these steps to get the environment running on your local machine.
+Follow these exact steps to get the environment running on your local machine.
 
 ### 1. Check Prerequisites
 
-The tool requires **Node.js** and **npm** to run. Open your terminal and check if they are installed:
+This tool requires **Node.js**, **npm**, **Git**, and **Homebrew** (if you are on a Mac). Open your terminal and check if they are installed by typing these commands:
 
 ```bash
 node -v
 npm -v
+git --version
+brew -v
 
 ```
+### 2. Install Missing Prerequisites
 
-**If not installed:**
+If any of the commands above did not work, follow these steps to install the missing tools:
 
-* **macOS:** Install via [Homebrew](): `brew install node` or download the installer from [nodejs.org]().
-* **Windows:** Download and run the Windows Installer (.msi) from [nodejs.org]().
+For macOS:
 
-### 2. Clone the Repository
+Homebrew: Install it first by running: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+Git: Run brew install git
+
+Node.js & npm: Run brew install node
+
+For Windows:
+
+Git: Download and install from git-scm.com.
+
+Node.js & npm: Download and run the Windows Installer (.msi) from nodejs.org.
+
+### 3. Clone the Repository
 
 Open your terminal and run the following command to download the source code:
 
@@ -32,7 +46,7 @@ git clone https://github.com/kheteswar/xc-app-store
 
 ```
 
-### 3. Install Dependencies
+### 4. Install Dependencies
 
 Navigate into the project folder and install the required Node.js packages:
 
@@ -42,7 +56,7 @@ npm install
 
 ```
 
-### 4. Start the Application
+### 5. Start the Application
 
 Launch the local development server:
 
