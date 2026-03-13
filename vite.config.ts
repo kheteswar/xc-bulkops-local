@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { fpAnalyzerPlugin } from './server/fp-analyzer-plugin';
 import type { IncomingMessage, ServerResponse } from 'http';
 import dns from 'node:dns';
 import http from 'node:http';
@@ -110,6 +111,7 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse) {
 export default defineConfig({
   plugins: [
     react(),
+    fpAnalyzerPlugin(),
     {
       name: 'f5xc-proxy',
       configureServer(server) {

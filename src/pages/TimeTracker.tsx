@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { 
-  Save, Download, Upload, Plus, Trash2, Send, Clock, 
+import {
+  Save, Download, Upload, Plus, Trash2, Send, Clock,
   Settings, AlertCircle, ChevronLeft, ChevronRight, KeyRound, Loader2,
   ChevronDown, Search, Globe, RefreshCw, RotateCcw, BarChart2,
-  TrendingUp, Users, Building2, Calendar
+  TrendingUp, Users, Building2, Calendar, Copy, ClipboardPaste
 } from 'lucide-react';
 import {
   AreaChart, Area, BarChart, Bar, LineChart, Line,
@@ -853,6 +853,8 @@ function ReportsPanel({ token }: ReportsPanelProps) {
 export function TimeTracker() {
   const toast = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const theadRef = useRef<HTMLTableSectionElement>(null);
+  const [showStickyHeader, setShowStickyHeader] = useState(false);
 
   // App Initialization State
   const [isInitialized, setIsInitialized] = useState(false);
@@ -866,7 +868,13 @@ export function TimeTracker() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingWeek, setIsLoadingWeek] = useState(false);
   const [isCopyingPrevWeek, setIsCopyingPrevWeek] = useState(false);
-  
+  const [copiedSetup, setCopiedSetup] = useState<{ customerName: string; productName: string; workTypeName: string }[] | null>(() => {
+    try {
+      const saved = localStorage.getItem('tt_copied_setup');
+      return saved ? JSON.parse(saved) : null;
+    } catch { return null; }
+  });
+
   // Data State
   const [customers, setCustomers] = useState<ReferenceItem[]>([]);
   const [products, setProducts] = useState<ReferenceItem[]>(DEFAULT_PRODUCTS.map(p => ({ id: p, name: p })));
@@ -1101,6 +1109,18 @@ export function TimeTracker() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekOffset, isInitialized, isConfigured]);
 
+  // Show a fixed sticky header when the real thead scrolls above the site header
+  useEffect(() => {
+    const el = theadRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setShowStickyHeader(!entry.isIntersecting),
+      { rootMargin: '-64px 0px 0px 0px', threshold: 0 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [activeTab, isConfigured]);
+
   const copyFromPreviousWeek = useCallback(async () => {
     if (!token || !isConfigured) return;
     setIsCopyingPrevWeek(true);
@@ -1125,6 +1145,35 @@ export function TimeTracker() {
       else { toast.error('Failed to load previous week data.'); }
     } finally { setIsCopyingPrevWeek(false); }
   }, [token, isConfigured, weekOffset, fetchAllWeekEntries, toast]);
+
+  const copySetup = useCallback(() => {
+    const setup = rows
+      .filter(r => r.customerName || r.productName || r.workTypeName)
+      .map(({ customerName, productName, workTypeName }) => ({ customerName, productName, workTypeName }));
+    if (setup.length === 0) {
+      toast.warning('No rows with setup to copy. Fill in Customer, Product, or Work Type first.');
+      return;
+    }
+    setCopiedSetup(setup);
+    localStorage.setItem('tt_copied_setup', JSON.stringify(setup));
+    toast.success(`Copied setup from ${setup.length} row(s) to clipboard.`);
+  }, [rows, toast]);
+
+  const pasteSetup = useCallback(() => {
+    if (!copiedSetup || copiedSetup.length === 0) {
+      toast.warning('No setup in clipboard. Copy a setup from any week first.');
+      return;
+    }
+    const newRows: TimeRow[] = copiedSetup.map(s => ({
+      id: generateId(),
+      customerName: s.customerName,
+      productName: s.productName,
+      workTypeName: s.workTypeName,
+      hours: { mon: '', tue: '', wed: '', thu: '', fri: '', sat: '', sun: '' }
+    }));
+    setRows(newRows);
+    toast.success(`Pasted setup with ${newRows.length} row(s). Hours are blank — fill them in.`);
+  }, [copiedSetup, toast]);
 
   const saveSettings = () => {
     if (!token) {
@@ -1539,17 +1588,51 @@ export function TimeTracker() {
               {isCopyingPrevWeek ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ChevronLeft className="w-3.5 h-3.5" />}
               Copy Previous Week
             </button>
+            <div className="w-px h-6 bg-slate-700" />
+            <button onClick={copySetup} disabled={isLoadingWeek} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 border border-cyan-500/30 hover:border-cyan-400/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title="Copy this week's row setup (Customer, Product, Work Type) to clipboard">
+              <Copy className="w-3.5 h-3.5" />
+              Copy Setup
+            </button>
+            <button onClick={pasteSetup} disabled={isLoadingWeek || !copiedSetup} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 border border-emerald-500/30 hover:border-emerald-400/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed" title={copiedSetup ? `Paste ${copiedSetup.length} row(s) from clipboard` : 'No setup copied yet'}>
+              <ClipboardPaste className="w-3.5 h-3.5" />
+              Paste Setup{copiedSetup ? ` (${copiedSetup.length})` : ''}
+            </button>
           </div>
           
           <button onClick={() => setWeekOffset(w => w + 1)} className="p-2 hover:bg-slate-700 rounded-lg transition-colors"><ChevronRight className="w-5 h-5" /></button>
         </div>
+
+        {/* Sticky Column Header — shown when the real header scrolls out of view */}
+        {showStickyHeader && (
+          <div className="fixed top-16 left-0 right-0 z-40 bg-slate-800 border-b border-slate-700 shadow-lg shadow-black/30">
+            <div className="max-w-[1600px] mx-auto px-4">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr>
+                    <th className="p-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-[200px]">Customer</th>
+                    <th className="p-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-[160px]">Product</th>
+                    <th className="p-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-[155px]">Work Type</th>
+                    {DAYS.map(day => (
+                      <th key={day} className="p-2 text-xs font-semibold text-center text-slate-400 uppercase tracking-wider w-16">
+                        <span>{weekDates[day].dayLabel}</span>{' '}
+                        <span>{weekDates[day].dateLabel}</span>
+                      </th>
+                    ))}
+                    <th className="p-2 text-xs font-semibold text-center text-slate-400 uppercase tracking-wider w-14">Total</th>
+                    <th className="p-2 w-10"></th>
+                  </tr>
+                </thead>
+              </table>
+            </div>
+          </div>
+        )}
 
         {/* Matrix Grid */}
         <div className={`bg-slate-800/50 rounded-xl border border-slate-700 overflow-hidden transition-opacity duration-300 ${isLoadingWeek ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
           <div className="overflow-x-auto">
             <div className="w-full">
               <table className="w-full text-left border-collapse">
-                <thead>
+                <thead ref={theadRef}>
                   <tr className="bg-slate-800/80 border-b border-slate-700">
                     <th className="p-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-[200px]">Customer</th>
                     <th className="p-2 text-xs font-semibold text-slate-400 uppercase tracking-wider w-[160px]">Product</th>

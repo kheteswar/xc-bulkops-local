@@ -18,7 +18,12 @@ import {
   Copy,
   Layers,
   Split,
-  Hammer
+  Hammer,
+  Gauge,
+  ShieldAlert,
+  Database,
+  GitBranch,
+  BarChart2,
 } from 'lucide-react';
 import { ConnectionPanel } from '../components/ConnectionPanel';
 import { ToolCard } from '../components/ToolCard';
@@ -26,10 +31,70 @@ import { useApp } from '../context/AppContext';
 
 const tools = [
   {
-    name: 'Config Visualizer',
+    name: 'FP Analyzer',
+    description: 'Analyze WAF security events to detect false positives. Reviews signatures, violations, and threat intel with 7-signal scoring.',
+    icon: ShieldAlert,
+    to: '/fp-analyzer',
+    tags: [
+      { label: 'Analyze', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'Config Dump',
+    description: 'Export full configuration for any object type with all child objects. Download as JSON or PDF.',
+    icon: Database,
+    to: '/config-dump',
+    tags: [
+      { label: 'Export', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'DDoS Settings Advisor',
+    description: 'Analyze traffic patterns to find peak RPS and recommend tuned L7 DDoS protection settings for optimal security hardening.',
+    icon: Shield,
+    to: '/ddos-advisor',
+    tags: [
+      { label: 'Analyze', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'Rate Limit Advisor',
+    description: 'Analyze 7 days of traffic to find safe rate limits. Combines access logs with security events for data-driven recommendations.',
+    icon: Gauge,
+    to: '/rate-limit-advisor',
+    tags: [
+      { label: 'Analyze', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'Config Viewer',
     description: 'Interactive map of Load Balancer dependencies and configuration settings.',
     icon: Grid3X3,
     to: '/config-visualizer',
+    tags: [
+      { label: 'Visualize', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'Dependency Map',
+    description: 'Interactive relationship map of all config objects. Graph, table, tree, and matrix views.',
+    icon: GitBranch,
+    to: '/config-explorer',
     tags: [
       { label: 'Visualize', type: 'report' as const },
       { label: 'Read-Only', type: 'safe' as const },
@@ -125,6 +190,18 @@ const tools = [
     to: '/http-lb-forge',
     tags: [{ label: 'Create', type: 'create' as const }],
     disabled: false,
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'Log Analyzer',
+    description: 'Analyze access logs with flexible filters. View metrics, distributions, and top values for any field.',
+    icon: BarChart2,
+    to: '/log-analyzer',
+    tags: [
+      { label: 'Analyze', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
     badge: 'New',
     featured: true,
   },

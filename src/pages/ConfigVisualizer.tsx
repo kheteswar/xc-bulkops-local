@@ -4102,7 +4102,7 @@ export function ConfigVisualizer() {
                 <Grid3X3 className="w-5 h-5" />
               </div>
               <div>
-                <h1 className="text-lg font-bold text-slate-100">Config Visualizer</h1>
+                <h1 className="text-lg font-bold text-slate-100">Config Viewer</h1>
                 <p className="text-xs text-slate-500">
                   Comprehensive Load Balancer Configuration View
                 </p>

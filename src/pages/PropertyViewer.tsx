@@ -131,7 +131,7 @@ const HTTP_LB_PROPERTIES: PropertyDef[] = [
   { id: 'l7_ddos_protection', label: 'L7 DDoS Protection', category: 'Security', extractor: (o) => o?.spec?.l7_ddos_protection ? 'Enabled' : 'Disabled' },
   { id: 'rate_limit', label: 'Rate Limiting', category: 'Security', extractor: (o) => (o?.spec?.disable_rate_limit !== undefined) ? 'Disabled' : 'Enabled' },
   { id: 'malware_protection', label: 'Malware Protection', category: 'Security', extractor: (o) => (o?.spec?.disable_malware_protection !== undefined) ? 'Disabled' : 'Enabled' },
-  { id: 'threat_mesh', label: 'Threat Mesh', category: 'Security', extractor: (o) => (o?.spec?.disable_threat_mesh !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'threat_mesh', label: 'Threat Mesh', category: 'Security', extractor: (o) => (o?.spec?.enable_threat_mesh !== undefined) ? 'Enabled' : 'Disabled' },
   { id: 'service_policies', label: 'Service Policies', category: 'Security', extractor: (o) => { const p = o?.spec?.active_service_policies?.policies; return p?.length ? p.map((x: any) => x.name).join(', ') : 'None'; } },
   { id: 'user_identification', label: 'User Identification', category: 'Security', extractor: (o) => o?.spec?.user_identification?.name || 'None' },
   { id: 'client_side_defense', label: 'Client-Side Defense', category: 'Security', extractor: (o) => (o?.spec?.disable_client_side_defense !== undefined) ? 'Disabled' : (o?.spec?.client_side_defense?.policy?.name || 'Enabled') },
@@ -203,7 +203,7 @@ const CDN_LB_PROPERTIES: PropertyDef[] = [
   { id: 'malicious_user_detection', label: 'Malicious User Detection', category: 'Security', extractor: (o) => (o?.spec?.disable_malicious_user_detection !== undefined) ? 'Disabled' : 'Enabled' },
   { id: 'l7_ddos_protection', label: 'L7 DDoS Protection', category: 'Security', extractor: (o) => (o?.spec?.l7_ddos_action_default !== undefined) ? 'Default' : 'Custom' },
   { id: 'rate_limit', label: 'Rate Limiting', category: 'Security', extractor: (o) => (o?.spec?.disable_rate_limit !== undefined) ? 'Disabled' : 'Enabled' },
-  { id: 'threat_mesh', label: 'Threat Mesh', category: 'Security', extractor: (o) => (o?.spec?.disable_threat_mesh !== undefined) ? 'Disabled' : 'Enabled' },
+  { id: 'threat_mesh', label: 'Threat Mesh', category: 'Security', extractor: (o) => (o?.spec?.enable_threat_mesh !== undefined) ? 'Enabled' : 'Disabled' },
   { id: 'service_policies', label: 'Service Policies', category: 'Security', extractor: (o) => (o?.spec?.no_service_policies !== undefined) ? 'None' : 'Enabled' },
   { id: 'client_side_defense', label: 'Client-Side Defense', category: 'Security', extractor: (o) => (o?.spec?.disable_client_side_defense !== undefined) ? 'Disabled' : 'Enabled' },
 

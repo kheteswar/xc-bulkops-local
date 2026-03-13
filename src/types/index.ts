@@ -201,22 +201,32 @@ export interface RateLimitConfig {
 }
 
 export interface L7DDoSProtection {
-  mitigation_block?: unknown;
-  mitigation_js_challenge?: unknown;
-  mitigation_captcha?: unknown;
-  default_rps_threshold?: unknown;
-  custom_rps_threshold?: { threshold?: number };
-  clientside_action_none?: unknown;
-  clientside_action_block?: unknown;
-  clientside_action_redirect?: unknown;
-  ddos_policy_none?: unknown;
-  ddos_policy?: ObjectRef;
+  mitigation_block?: Record<string, never>;
+  mitigation_js_challenge?: { js_script_delay?: number; cookie_expiry?: number };
+  mitigation_captcha_challenge?: { cookie_expiry?: number; custom_page?: string };
+  mitigation_none?: Record<string, never>;
+  default_rps_threshold?: Record<string, never>;
+  rps_threshold?: number;
+  clientside_action_none?: Record<string, never>;
+  clientside_action_js_challenge?: { js_script_delay?: number; cookie_expiry?: number };
+  clientside_action_captcha_challenge?: { cookie_expiry?: number };
+  ddos_policy_none?: Record<string, never>;
+  ddos_policy_custom?: ObjectRef;
 }
 
 export interface DDoSMitigationRule {
-  metadata?: { name?: string };
-  ddos_client_source?: { country_list?: string[]; asn_list?: { as_numbers?: number[] } };
-  mitigation_action?: { none?: boolean; block?: boolean; js_challenge?: boolean };
+  metadata?: { name?: string; disable?: boolean };
+  block?: Record<string, never>;
+  ip_prefix_list?: {
+    ip_prefixes?: string[];
+    ipv6_prefixes?: string[];
+    invert_match?: boolean;
+  };
+  ddos_client_source?: {
+    country_list?: string[];
+    asn_list?: number[];
+    tls_fingerprint_classes?: string[];
+  };
 }
 
 export interface WafExclusionRule {

@@ -25,6 +25,10 @@ class F5XCApiClient {
     return this.tenant;
   }
 
+  getToken(): string | null {
+    return this.apiToken;
+  }
+
   private async proxyRequest<T>(endpoint: string, method = 'GET', body?: unknown): Promise<T> {
     if (!this.tenant || !this.apiToken) {
       throw new Error('API client not initialized');
@@ -44,17 +48,18 @@ class F5XCApiClient {
       }),
     });
 
-    // Attempt to parse JSON response
+    // Safely parse response — F5 XC API sometimes returns plain text with JSON content-type
     let data;
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.indexOf('application/json') !== -1) {
-      data = await response.json();
-    } else {
-      // Handle non-JSON responses (usually generic errors)
+    const text = await response.text();
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // Response body is not valid JSON (rate limit errors, gateway errors, etc.)
       if (!response.ok) {
-         throw new Error(`API Error: ${response.status} ${response.statusText}`);
+        const preview = text.length < 200 ? text : text.slice(0, 150) + '...';
+        throw new Error(`API Error ${response.status}: ${preview}`);
       }
-      return {} as T; 
+      return {} as T;
     }
 
     // Check for HTTP errors or API-specific error fields
@@ -238,6 +243,63 @@ async requestExternal<T>(tenant: string, token: string, endpoint: string, method
   // --- Certificate APIs ---
   async getCertificates(namespace: string): Promise<{ items: Certificate[] }> {
     return this.get(`/api/config/namespaces/${namespace}/certificates`);
+  }
+
+  // --- Access Logs APIs (for Rate Limit Advisor) ---
+  async getAccessLogs(namespace: string, body: unknown): Promise<unknown> {
+    return this.post(`/api/data/namespaces/${namespace}/access_logs`, body);
+  }
+
+  async scrollAccessLogs(namespace: string, body: { scroll_id: string; namespace: string }): Promise<unknown> {
+    return this.post(`/api/data/namespaces/${namespace}/access_logs/scroll`, body);
+  }
+
+  // --- Security Events APIs ---
+  async getSecurityEvents(namespace: string, body: unknown): Promise<unknown> {
+    return this.post(`/api/data/namespaces/${namespace}/app_security/events`, body);
+  }
+
+  async scrollSecurityEvents(namespace: string, body: { scroll_id: string; namespace: string }): Promise<unknown> {
+    return this.post(`/api/data/namespaces/${namespace}/app_security/events/scroll`, body);
+  }
+
+  // --- Rate Limiter APIs ---
+  async getRateLimiters(namespace: string): Promise<{ items: unknown[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/rate_limiters`);
+  }
+
+  async createRateLimiter(namespace: string, body: unknown): Promise<unknown> {
+    return this.post(`/api/config/namespaces/${namespace}/rate_limiters`, body);
+  }
+
+  // --- Rate Limiter Policy APIs ---
+  async getRateLimiterPolicies(namespace: string): Promise<{ items: unknown[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/rate_limiter_policys`);
+  }
+
+  async createRateLimiterPolicy(namespace: string, body: unknown): Promise<unknown> {
+    return this.post(`/api/config/namespaces/${namespace}/rate_limiter_policys`, body);
+  }
+
+  // --- WAF Exclusion Policy APIs ---
+  async listWafExclusionPolicies(namespace: string): Promise<{ items: unknown[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/waf_exclusion_policys`);
+  }
+
+  async getWafExclusionPolicy(namespace: string, name: string): Promise<unknown> {
+    return this.get(`/api/config/namespaces/${namespace}/waf_exclusion_policys/${name}`);
+  }
+
+  async createWafExclusionPolicy(namespace: string, body: unknown): Promise<unknown> {
+    return this.post(`/api/config/namespaces/${namespace}/waf_exclusion_policys`, body);
+  }
+
+  async replaceWafExclusionPolicy(namespace: string, name: string, body: unknown): Promise<unknown> {
+    return this.put(`/api/config/namespaces/${namespace}/waf_exclusion_policys/${name}`, body);
+  }
+
+  async deleteWafExclusionPolicy(namespace: string, name: string): Promise<unknown> {
+    return this.delete(`/api/config/namespaces/${namespace}/waf_exclusion_policys/${name}`);
   }
 }
 

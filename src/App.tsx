@@ -14,6 +14,12 @@ import { HttpSanityChecker } from './pages/HttpSanityChecker';
 import { PrefixBuilder } from './pages/PrefixBuilder';
 import { HttpLbForge } from './pages/HttpLbForge';
 import { TimeTracker } from './pages/TimeTracker';
+import { RateLimitAdvisor } from './pages/RateLimitAdvisor';
+import FPAnalyzer from './pages/FPAnalyzer';
+import { ConfigDump } from './pages/ConfigDump';
+import { ConfigExplorer } from './pages/ConfigExplorer';
+import { DdosAdvisor } from './pages/DdosAdvisor';
+import { LogAnalyzer } from './pages/LogAnalyzer';
 
 function App() {
   return (
@@ -34,6 +40,12 @@ function App() {
               <Route path="/prefix-builder" element={<PrefixBuilder />} />
               <Route path="/http-lb-forge" element={<HttpLbForge />} />
               <Route path="/time-tracker" element={<TimeTracker />} />
+              <Route path="/rate-limit-advisor" element={<RateLimitAdvisor />} />
+              <Route path="/fp-analyzer" element={<FPAnalyzer />} />
+              <Route path="/config-dump" element={<ConfigDump />} />
+              <Route path="/config-explorer" element={<ConfigExplorer />} />
+              <Route path="/ddos-advisor" element={<DdosAdvisor />} />
+              <Route path="/log-analyzer" element={<LogAnalyzer />} />
             </Routes>
             <Footer />
           </div>
