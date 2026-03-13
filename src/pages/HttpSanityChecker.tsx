@@ -1,12 +1,13 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef } from 'react';
 import { 
-  ArrowLeft, Play, Download, Upload, 
-  CheckCircle, XCircle, Activity, ChevronDown, ChevronRight,
-  ShieldAlert, Layers, Code, Trash2, Plus, Globe, FileText, X, ClipboardList,
-  ExternalLink
+  ArrowLeft, Play, Download, Upload,
+  CheckCircle, XCircle, Activity, ChevronRight, ChevronLeft,
+  ShieldAlert, ShieldCheck, Layers, Code, Trash2, Plus, Globe, FileText, X, ClipboardList,
+  ExternalLink, AlertTriangle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
+import { generateSanityCheckPdf } from '../services/sanity-checker/pdf-report';
 
 // --- Types ---
 
@@ -15,6 +16,18 @@ interface TestRow {
   domain: string;
   targetIps: string[];
   path: string;
+}
+
+interface TlsCertInfo {
+  subject: string;
+  issuer: string;
+  issuerOrg: string;
+  validFrom: string;
+  validTo: string;
+  serialNumber: string;
+  fingerprint256: string;
+  subjectAltName: string;
+  protocol: string;
 }
 
 interface RequestResult {
@@ -29,6 +42,7 @@ interface RequestResult {
   debugInfo?: string;
   error?: string;
   connectedIp?: string;
+  tlsCert?: TlsCertInfo | null;
 }
 
 interface SpoofedResult {
@@ -110,6 +124,32 @@ const calculateSimilarity = (str1: string, str2: string): number => {
 
   return Math.floor((2.0 * hit) / union * 100);
 };
+
+const isValidIpv4 = (ip: string): boolean => {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return false;
+  return parts.every(p => {
+    if (!/^\d{1,3}$/.test(p)) return false;
+    const n = parseInt(p, 10);
+    return n >= 0 && n <= 255;
+  });
+};
+
+const isValidIpv6 = (ip: string): boolean => {
+  // Basic IPv6 validation: 1-8 groups of hex separated by colons, with optional :: compression
+  if (ip.includes('::')) {
+    const sides = ip.split('::');
+    if (sides.length > 2) return false;
+    const left = sides[0] ? sides[0].split(':') : [];
+    const right = sides[1] ? sides[1].split(':') : [];
+    if (left.length + right.length > 7) return false;
+    return [...left, ...right].every(g => /^[0-9a-fA-F]{1,4}$/.test(g));
+  }
+  const groups = ip.split(':');
+  return groups.length === 8 && groups.every(g => /^[0-9a-fA-F]{1,4}$/.test(g));
+};
+
+const isValidIp = (ip: string): boolean => isValidIpv4(ip.trim()) || isValidIpv6(ip.trim());
 
 const parseCSV = (text: string): TestRow[] => {
   const lines = text.split('\n').filter(l => l.trim().length > 0);
@@ -318,24 +358,110 @@ const HeaderDiff = ({ pubHeaders, spoofHeaders, publicIp, spoofedIp }: {
   );
 };
 
-// --- Domain / Environment Group Summary ---
+const TlsCertComparison = ({ liveCert, spoofCerts }: {
+  liveCert?: TlsCertInfo | null;
+  spoofCerts: Array<{ label: string; ip: string; cert?: TlsCertInfo | null }>;
+}) => {
+  if (!liveCert && spoofCerts.every(s => !s.cert)) return null;
 
-interface EnvGroup {
-  envIdx: number;
-  label: string;
-  results: ComparisonResult[];
-  passCount: number;
-  failCount: number;
-}
+  const formatDate = (d: string) => {
+    if (!d) return '—';
+    try { return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }); }
+    catch { return d; }
+  };
 
-interface DomainGroup {
-  domain: string;
-  results: ComparisonResult[];
-  envGroups: EnvGroup[];
-  allPassed: boolean;
-  passCount: number;
-  failCount: number;
-}
+  const isExpired = (d: string) => {
+    if (!d) return false;
+    try { return new Date(d) < new Date(); }
+    catch { return false; }
+  };
+
+  const parseSANs = (san: string): string[] => {
+    if (!san) return [];
+    return san.split(',').map(s => s.trim().replace(/^DNS:/, '')).filter(Boolean);
+  };
+
+  const rows: Array<{ label: string; getValue: (c: TlsCertInfo | null | undefined) => string; highlight?: (live: string, spoof: string) => boolean }> = [
+    { label: 'Subject (CN)', getValue: c => c?.subject || '—' },
+    { label: 'Issuer', getValue: c => c ? `${c.issuer}${c.issuerOrg ? ` (${c.issuerOrg})` : ''}` : '—', highlight: (l, s) => l !== s },
+    { label: 'Valid From', getValue: c => formatDate(c?.validFrom || '') },
+    { label: 'Valid To', getValue: c => formatDate(c?.validTo || ''), highlight: (l, s) => l !== s },
+    { label: 'Serial', getValue: c => c?.serialNumber || '—' },
+    { label: 'TLS Protocol', getValue: c => c?.protocol || '—', highlight: (l, s) => l !== s },
+    { label: 'Fingerprint (SHA256)', getValue: c => c?.fingerprint256 ? c.fingerprint256.slice(0, 32) + '…' : '—' },
+  ];
+
+  const liveSANs = parseSANs(liveCert?.subjectAltName || '');
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-slate-700">
+      <table className="w-full text-xs font-mono">
+        <thead>
+          <tr className="border-b border-slate-700 bg-slate-900/60">
+            <th className="text-left py-2 px-3 text-slate-500 font-normal w-36">Field</th>
+            <th className="py-2 px-3 text-left text-blue-400">
+              <div className="flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-blue-400" /> LIVE</div>
+            </th>
+            {spoofCerts.map((s, i) => {
+              const c = getSpoofColor(i);
+              return (
+                <th key={i} className={`py-2 px-3 text-left ${c.label}`}>
+                  <div className="flex items-center gap-1.5"><div className={`w-1.5 h-1.5 rounded-full ${c.dot}`} /> {s.label}</div>
+                  <div className="text-[10px] text-slate-500 font-normal mt-0.5">{s.ip}</div>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(({ label, getValue, highlight }, ri) => {
+            const liveVal = getValue(liveCert);
+            return (
+              <tr key={ri} className={`border-b border-slate-700/50 ${ri % 2 === 0 ? 'bg-slate-900/20' : ''}`}>
+                <td className="py-2 px-3 text-slate-500">{label}</td>
+                <td className={`py-2 px-3 ${label === 'Valid To' && isExpired(liveCert?.validTo || '') ? 'text-red-400 font-bold' : 'text-slate-200'}`}
+                  title={label === 'Fingerprint (SHA256)' ? liveCert?.fingerprint256 || '' : undefined}>
+                  {liveVal}
+                </td>
+                {spoofCerts.map((s, ci) => {
+                  const spoofVal = getValue(s.cert);
+                  const isDrift = highlight ? highlight(liveVal, spoofVal) : false;
+                  const expired = label === 'Valid To' && isExpired(s.cert?.validTo || '');
+                  return (
+                    <td key={ci} className={`py-2 px-3 ${expired ? 'text-red-400 font-bold' : isDrift ? 'text-amber-300 font-bold' : 'text-slate-200'}`}
+                      title={label === 'Fingerprint (SHA256)' ? s.cert?.fingerprint256 || '' : undefined}>
+                      {spoofVal}
+                    </td>
+                  );
+                })}
+              </tr>
+            );
+          })}
+          {/* SAN row */}
+          <tr className="border-b border-slate-700/50">
+            <td className="py-2 px-3 text-slate-500 align-top">SANs</td>
+            <td className="py-2 px-3 text-slate-200 align-top">
+              {liveSANs.length > 0
+                ? <div className="flex flex-wrap gap-1">{liveSANs.slice(0, 8).map((s, i) => <span key={i} className="px-1.5 py-0.5 bg-slate-700/50 rounded text-[10px]">{s}</span>)}{liveSANs.length > 8 && <span className="text-[10px] text-slate-500">+{liveSANs.length - 8} more</span>}</div>
+                : <span className="text-slate-600">—</span>}
+            </td>
+            {spoofCerts.map((s, ci) => {
+              const spoofSANs = parseSANs(s.cert?.subjectAltName || '');
+              const sanMismatch = liveSANs.join(',') !== spoofSANs.join(',');
+              return (
+                <td key={ci} className={`py-2 px-3 align-top ${sanMismatch ? 'text-amber-300' : 'text-slate-200'}`}>
+                  {spoofSANs.length > 0
+                    ? <div className="flex flex-wrap gap-1">{spoofSANs.slice(0, 8).map((ss, i) => <span key={i} className="px-1.5 py-0.5 bg-slate-700/50 rounded text-[10px]">{ss}</span>)}{spoofSANs.length > 8 && <span className="text-[10px] text-slate-500">+{spoofSANs.length - 8} more</span>}</div>
+                    : <span className="text-slate-600">—</span>}
+                </td>
+              );
+            })}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  );
+};
 
 export function HttpSanityChecker() {
   const toast = useToast();
@@ -356,58 +482,8 @@ export function HttpSanityChecker() {
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState<ComparisonResult[]>([]);
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
-  const [collapsedDomains, setCollapsedDomains] = useState<Set<string>>(new Set());
-  const [collapsedEnvGroups, setCollapsedEnvGroups] = useState<Set<string>>(new Set());
+  const [currentResultIdx, setCurrentResultIdx] = useState(0);
   const abortController = useRef<AbortController | null>(null);
-
-  // --- Group results by domain, then by spoof environment ---
-  const groupedResults: DomainGroup[] = useMemo(() => {
-    const map = new Map<string, ComparisonResult[]>();
-    for (const res of results) {
-      const domain = res.row.domain;
-      if (!map.has(domain)) map.set(domain, []);
-      map.get(domain)!.push(res);
-    }
-
-    return Array.from(map.entries()).map(([domain, items]) => {
-      // Determine how many spoof environments exist across all results in this domain
-      const maxEnvs = items.reduce((m, r) => Math.max(m, r.spoofedResults.length), 0);
-
-      const envGroups: EnvGroup[] = Array.from({ length: maxEnvs }, (_, envIdx) => {
-        const envResults = items.filter(r => r.spoofedResults[envIdx] !== undefined);
-        const passCount = envResults.filter(r => r.spoofedResults[envIdx]?.passed).length;
-        const failCount = envResults.length - passCount;
-        return {
-          envIdx,
-          label: getSpoofLabel(envIdx),
-          results: envResults,
-          passCount,
-          failCount,
-        };
-      });
-
-      const passCount = items.filter(r => r.overallPassed).length;
-      const failCount = items.length - passCount;
-      return { domain, results: items, envGroups, allPassed: failCount === 0, passCount, failCount };
-    });
-  }, [results]);
-
-  const toggleDomainCollapse = (domain: string) => {
-    setCollapsedDomains(prev => {
-      const next = new Set(prev);
-      if (next.has(domain)) next.delete(domain); else next.add(domain);
-      return next;
-    });
-  };
-
-  const toggleEnvGroupCollapse = (key: string) => {
-    setCollapsedEnvGroups(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  };
 
   // --- Server-Side Proxy Execution ---
   const executeRequest = async (url: string, isSpoofed: boolean, hostHeader: string, targetIp: string): Promise<RequestResult> => {
@@ -469,7 +545,8 @@ export function HttpSanityChecker() {
         duration: Math.round(end - start),
         isBotChallenge,
         debugInfo,
-        connectedIp: data.connectedIp
+        connectedIp: data.connectedIp,
+        tlsCert: data.tlsCert || null,
       };
     } catch (err: any) {
       const end = performance.now();
@@ -586,7 +663,7 @@ export function HttpSanityChecker() {
       }
     }).filter(Boolean);
 
-    const content = ['domain, targetIps (;-sep), path', ...rows].join('\n');
+    const content = ['Live Domain, Spoof IPs (;-sep), Path', ...rows].join('\n');
     const blob = new Blob([content], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -619,11 +696,23 @@ export function HttpSanityChecker() {
       }
     }
 
+    // Validate all IP addresses across all rows
+    const invalidIps: string[] = [];
+    for (const row of rows) {
+      for (const ip of row.targetIps) {
+        if (!isValidIp(ip)) invalidIps.push(ip);
+      }
+    }
+    if (invalidIps.length > 0) {
+      const unique = [...new Set(invalidIps)];
+      toast.error(`Invalid IP address${unique.length > 1 ? 'es' : ''}: ${unique.join(', ')}`);
+      return;
+    }
+
     setIsRunning(true);
     setResults([]);
     setProgress(0);
-    setCollapsedDomains(new Set());
-    setCollapsedEnvGroups(new Set());
+    setCurrentResultIdx(0);
     abortController.current = new AbortController();
 
     for (let i = 0; i < rows.length; i++) {
@@ -678,7 +767,7 @@ export function HttpSanityChecker() {
   const handleExport = () => {
     if (results.length === 0) return;
     const header = [
-      "Domain", "Path", "Overall Result",
+      "Live Domain", "Path", "Overall Result",
       "Live Status", "Live ConnIP",
       ...results[0]?.spoofedResults.flatMap((_, i) => [
         `Spoof${i+1} IP`, `Spoof${i+1} Status`, `Spoof${i+1} StatusMatch`, `Spoof${i+1} Similarity`, `Spoof${i+1} Bot`
@@ -703,10 +792,6 @@ export function HttpSanityChecker() {
     a.click();
   };
 
-  const toggleRow = (id: string) => {
-    setExpandedRow(expandedRow === id ? null : id);
-  };
-
   const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -723,184 +808,6 @@ export function HttpSanityChecker() {
     event.target.value = '';
   };
 
-  // --- Render a single path row, optionally scoped to one env by envIdx (null = show all spoofs) ---
-  const renderPathRow = (res: ComparisonResult, isExpanded: boolean, fullUrl: string, envIdx: number | null) => {
-    const displayedSpoofs = envIdx !== null
-      ? res.spoofedResults.filter((_, i) => i === envIdx)
-      : res.spoofedResults;
-    const envPassed = envIdx !== null
-      ? (res.spoofedResults[envIdx]?.passed ?? res.overallPassed)
-      : res.overallPassed;
-    const envIp = envIdx !== null ? res.spoofedResults[envIdx]?.ip : null;
-    const displayedReasons = envIdx !== null && envIp
-      ? res.reasons.filter(r => r.startsWith(`[${envIp}]`)).map(r => r.replace(`[${envIp}] `, ''))
-      : res.reasons;
-
-    return (
-      <div key={`${res.row.id}-env${envIdx}`} className="bg-slate-800">
-        {/* Row Header */}
-        <div
-          className="flex items-center gap-3 px-4 py-3 hover:bg-slate-700/50 cursor-pointer transition-colors"
-          onClick={() => toggleRow(res.row.id)}
-        >
-          <div className="shrink-0">
-            {isExpanded
-              ? <ChevronDown className="w-4 h-4 text-slate-500" />
-              : <ChevronRight className="w-4 h-4 text-slate-500" />}
-          </div>
-          <div className="shrink-0">
-            {envPassed
-              ? <CheckCircle className="w-5 h-5 text-emerald-500" />
-              : <XCircle className="w-5 h-5 text-red-500" />}
-          </div>
-          <div className="flex-1 min-w-0 mr-2">
-            <div className="flex items-center gap-2">
-              <span className="font-medium text-sm text-slate-200 truncate" title={res.row.path}>
-                {res.row.path}
-              </span>
-              <a
-                href={fullUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className="shrink-0 text-slate-500 hover:text-blue-400 transition-colors"
-                title={`Open ${fullUrl} in new tab`}
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-              </a>
-            </div>
-            {!isExpanded && displayedReasons.length > 0 && (
-              <p className="text-[11px] text-amber-400/80 truncate mt-0.5" title={displayedReasons.join(' · ')}>
-                {displayedReasons[0]}{displayedReasons.length > 1 ? ` (+${displayedReasons.length - 1} more)` : ''}
-              </p>
-            )}
-          </div>
-          <div className="shrink-0 flex items-center gap-2">
-            {/* LIVE chip */}
-            <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/30 rounded-lg px-3 py-1.5">
-              <div className="flex items-center gap-1">
-                <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-                <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Live</span>
-              </div>
-              <span className={`text-sm font-mono font-bold ${res.public.status === 'ERR' ? 'text-red-400' : 'text-blue-300'}`}>
-                {res.public.status}
-              </span>
-              <span className="text-[10px] text-slate-500">{res.public.duration}ms</span>
-            </div>
-            {/* Env-scoped spoof chip(s) */}
-            {displayedSpoofs.map((spoof) => {
-              const originalIdx = res.spoofedResults.indexOf(spoof);
-              const c = getSpoofColor(originalIdx);
-              return (
-                <div key={originalIdx} className={`flex items-center gap-2 border rounded-lg px-3 py-1.5 ${c.border} ${c.bg}`}>
-                  <div className="flex items-center gap-1">
-                    <div className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
-                    <span className={`text-[10px] font-bold uppercase tracking-wider ${c.label}`}>{getSpoofLabel(originalIdx)}</span>
-                  </div>
-                  <span className={`text-sm font-mono font-bold ${
-                    spoof.result.status === 'ERR' ? 'text-red-400' : !spoof.statusMatch ? 'text-amber-300' : 'text-slate-200'
-                  }`}>
-                    {spoof.result.status}
-                  </span>
-                  <span className={`text-[10px] font-semibold ${spoof.score >= 95 ? 'text-emerald-400' : 'text-red-400'}`}>
-                    {spoof.score}%
-                  </span>
-                  {spoof.result.isBotChallenge && (
-                    <span className="text-[10px] text-amber-400 font-bold" title="Bot challenge detected">⚠</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Expanded Detail Panel */}
-        {isExpanded && (
-          <div className="border-t border-slate-700 bg-slate-900/30 p-4 space-y-4">
-            <div className="flex items-center gap-2 bg-slate-900/60 border border-slate-700/60 rounded-lg px-3 py-2">
-              <Globe className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-              <code className="text-xs text-slate-300 truncate flex-1" title={fullUrl}>{fullUrl}</code>
-              <a
-                href={fullUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="shrink-0 flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                Open <ExternalLink className="w-3 h-3" />
-              </a>
-            </div>
-            {displayedReasons.length > 0 && (
-              <div className="p-3 bg-amber-500/10 border border-amber-500/20 rounded text-xs text-amber-200">
-                <strong className="block mb-1">Comparison Drift Detected:</strong>
-                <ul className="list-disc pl-4 space-y-0.5">
-                  {displayedReasons.map((r, i) => <li key={i}>{r}</li>)}
-                </ul>
-              </div>
-            )}
-            <div className="space-y-4">
-              <div>
-                <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 flex items-center gap-2">
-                  <Layers className="w-3 h-3" /> Side-by-Side Comparison
-                </h4>
-                <ComparisonTable
-                  publicRes={res.public}
-                  spoofedResults={envIdx !== null ? res.spoofedResults.filter((_, i) => i === envIdx) : res.spoofedResults}
-                />
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">
-                    <Layers className="w-3 h-3" /> Header Comparison
-                  </h4>
-                  <div className="flex items-center gap-3 text-[10px]">
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 bg-amber-500 rounded"></div>
-                      <span className="text-slate-500">Significant Diff</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <div className="w-2 h-2 bg-slate-700 rounded"></div>
-                      <span className="text-slate-500">Ignored</span>
-                    </div>
-                  </div>
-                </div>
-                {displayedSpoofs.map((spoof) => {
-                  const originalIdx = res.spoofedResults.indexOf(spoof);
-                  const c = getSpoofColor(originalIdx);
-                  return (
-                    <div key={originalIdx} className="mb-3">
-                      <div className={`text-[10px] font-bold uppercase mb-1 ${c.label}`}>
-                        LIVE vs {getSpoofLabel(originalIdx)} ({spoof.ip})
-                      </div>
-                      <HeaderDiff
-                        pubHeaders={res.public.headers}
-                        spoofHeaders={spoof.result.headers}
-                        publicIp={res.public.connectedIp}
-                        spoofedIp={spoof.result.connectedIp}
-                      />
-                    </div>
-                  );
-                })}
-              </div>
-              {displayedSpoofs.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 flex items-center gap-2">
-                    <Code className="w-3 h-3" /> Body Preview (Live vs {getSpoofLabel(envIdx ?? 0)})
-                  </h4>
-                  <div className="text-xs font-bold text-slate-500 mb-1">Normalized Body Preview (First 500 chars)</div>
-                  <DiffView
-                    left={res.public.normalizedBody.slice(0, 500)}
-                    right={displayedSpoofs[0].result.normalizedBody.slice(0, 500)}
-                    title="Normalized Content"
-                  />
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100 p-6">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -913,7 +820,7 @@ export function HttpSanityChecker() {
               <Activity className="w-6 h-6 text-blue-400" />
               Live vs Spoof HTTP Sanity Checker
             </h1>
-            <p className="text-slate-400">Smart comparison between Public DNS (Akamai) and Target IP (F5 Origin)</p>
+            <p className="text-slate-400">Smart comparison between Live (Public DNS) and Spoof (Direct IP to Origin)</p>
           </div>
         </div>
 
@@ -951,7 +858,7 @@ export function HttpSanityChecker() {
                   <>
                     <div className="flex justify-between items-center mb-2">
                       <label className="block text-xs font-mono text-slate-400">
-                        CSV Input: Domain, Target IP, Path
+                        CSV Input: Live Domain, Spoof IP, Path
                       </label>
                       <div className="flex gap-2">
                         <button 
@@ -980,7 +887,7 @@ export function HttpSanityChecker() {
                       value={csvText}
                       onChange={(e) => setCsvText(e.target.value)}
                       className="w-full h-64 bg-slate-900 border border-slate-700 rounded-lg p-3 text-xs font-mono focus:ring-2 focus:ring-blue-500 outline-none resize-none"
-                      placeholder="example.com, 1.2.3.4, /api/status"
+                      placeholder="example.com, 1.2.3.4 (spoof IP), /api/status"
                     />
                   </>
                 ) : (
@@ -997,16 +904,26 @@ export function HttpSanityChecker() {
                       </div>
                       {spoofIps.map((ip, index) => {
                         const c = getSpoofColor(index);
+                        const trimmed = ip.trim();
+                        const ipInvalid = trimmed.length > 0 && !isValidIp(trimmed);
                         return (
-                          <div key={index} className={`flex gap-2 items-center p-2 rounded-lg border ${c.border} ${c.bg}`}>
-                            <div className={`text-[10px] font-bold uppercase w-14 shrink-0 ${c.label}`}>{getSpoofLabel(index)}</div>
-                            <input
-                              type="text"
-                              value={ip}
-                              onChange={(e) => updateSpoofIp(index, e.target.value)}
-                              placeholder="e.g. 10.0.0.1"
-                              className="flex-1 bg-slate-900/70 border border-slate-700 rounded px-2 py-1.5 text-sm font-mono focus:ring-1 focus:ring-slate-500 outline-none"
-                            />
+                          <div key={index} className={`flex gap-2 items-center p-2 rounded-lg border ${ipInvalid ? 'border-red-500/60 bg-red-500/10' : `${c.border} ${c.bg}`}`}>
+                            <div className={`text-[10px] font-bold uppercase w-14 shrink-0 ${ipInvalid ? 'text-red-400' : c.label}`}>{getSpoofLabel(index)}</div>
+                            <div className="flex-1 relative">
+                              <input
+                                type="text"
+                                value={ip}
+                                onChange={(e) => updateSpoofIp(index, e.target.value)}
+                                placeholder="e.g. 10.0.0.1"
+                                className={`w-full bg-slate-900/70 border rounded px-2 py-1.5 text-sm font-mono focus:ring-1 outline-none ${
+                                  ipInvalid ? 'border-red-500/60 focus:ring-red-500' : 'border-slate-700 focus:ring-slate-500'}`}
+                              />
+                              {ipInvalid && (
+                                <div className="flex items-center gap-1 mt-1 text-[10px] text-red-400">
+                                  <AlertTriangle className="w-3 h-3" /> Invalid IP format
+                                </div>
+                              )}
+                            </div>
                             <button
                               onClick={() => removeSpoofIp(index)}
                               disabled={spoofIps.length === 1}
@@ -1160,141 +1077,235 @@ export function HttpSanityChecker() {
             )}
 
             <div className="bg-slate-800 rounded-xl border border-slate-700 flex-1 flex flex-col overflow-hidden min-h-[500px]">
+              {/* Header bar with navigation */}
               <div className="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-800/50">
                 <h3 className="font-semibold text-slate-200">Analysis Report</h3>
                 <div className="flex items-center gap-3">
-                  {groupedResults.length > 0 && (
-                    <span className="text-xs text-slate-500">
-                      {groupedResults.length} domain{groupedResults.length !== 1 ? 's' : ''} · {results.length} test{results.length !== 1 ? 's' : ''}
-                    </span>
+                  {results.length > 0 && (
+                    <>
+                      <span className="text-xs text-slate-500">
+                        {results.filter(r => r.overallPassed).length} passed · {results.filter(r => !r.overallPassed).length} failed · {results.length} total
+                      </span>
+                      <button
+                        onClick={handleExport}
+                        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm flex items-center gap-2 transition-colors"
+                      >
+                        <Download className="w-4 h-4" /> CSV
+                      </button>
+                      <button
+                        onClick={() => generateSanityCheckPdf(results)}
+                        className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm flex items-center gap-2 transition-colors"
+                      >
+                        <FileText className="w-4 h-4" /> PDF
+                      </button>
+                    </>
                   )}
-                  <button 
-                    onClick={handleExport}
-                    disabled={results.length === 0}
-                    className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm flex items-center gap-2 transition-colors"
-                  >
-                    <Download className="w-4 h-4" /> Export CSV
-                  </button>
                 </div>
               </div>
 
-              <div className="overflow-y-auto flex-1">
-                {results.length === 0 ? (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-500 p-8">
-                    <Activity className="w-12 h-12 mb-4 opacity-20" />
-                    <p>Ready to analyze. Upload CSV or enter URLs to begin.</p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-slate-700">
-                    {groupedResults.map((group) => {
-                      const isDomainCollapsed = collapsedDomains.has(group.domain);
-                      return (
-                        <div key={group.domain}>
-                          {/* Domain Group Header */}
-                          <div
-                            onClick={() => toggleDomainCollapse(group.domain)}
-                            className="flex items-center gap-3 px-4 py-3 bg-slate-900/80 border-b border-slate-700 cursor-pointer hover:bg-slate-900 transition-colors sticky top-0 z-10"
-                          >
-                            <div className="shrink-0">
-                              {isDomainCollapsed ? (
-                                <ChevronRight className="w-4 h-4 text-slate-500" />
-                              ) : (
-                                <ChevronDown className="w-4 h-4 text-slate-500" />
-                              )}
-                            </div>
-                            <Globe className="w-4 h-4 text-blue-400 shrink-0" />
-                            <span className="font-semibold text-slate-100 text-sm">{group.domain}</span>
-                            <div className="flex items-center gap-2 ml-auto">
-                              {group.passCount > 0 && (
-                                <span className="flex items-center gap-1 text-xs text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2.5 py-0.5">
-                                  <CheckCircle className="w-3 h-3" /> {group.passCount}
-                                </span>
-                              )}
-                              {group.failCount > 0 && (
-                                <span className="flex items-center gap-1 text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-full px-2.5 py-0.5">
-                                  <XCircle className="w-3 h-3" /> {group.failCount}
-                                </span>
-                              )}
-                              <span className="text-xs text-slate-500">
-                                {group.results.length} path{group.results.length !== 1 ? 's' : ''}
+              {results.length === 0 ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-500 p-8">
+                  <Activity className="w-12 h-12 mb-4 opacity-20" />
+                  <p>Ready to analyze. Upload CSV or enter URLs to begin.</p>
+                </div>
+              ) : (() => {
+                const idx = Math.min(currentResultIdx, results.length - 1);
+                const res = results[idx];
+                const fullUrl = `https://${res.row.domain}${res.row.path}`;
+                const displayedSpoofs = res.spoofedResults;
+                const displayedReasons = res.reasons;
+
+                return (
+                  <div className="flex-1 flex flex-col overflow-hidden">
+                    {/* Navigation bar */}
+                    <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-700 bg-slate-900/40">
+                      <button onClick={() => setCurrentResultIdx(Math.max(0, idx - 1))} disabled={idx === 0}
+                        className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                        <ChevronLeft className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => setCurrentResultIdx(Math.min(results.length - 1, idx + 1))} disabled={idx === results.length - 1}
+                        className="p-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
+                      <span className="text-sm font-mono text-slate-400 ml-1">
+                        {idx + 1} <span className="text-slate-600">of</span> {results.length}
+                      </span>
+                      <div className="flex-1" />
+                      {/* Mini result list dropdown */}
+                      <select value={idx} onChange={e => setCurrentResultIdx(Number(e.target.value))}
+                        className="bg-slate-900 border border-slate-600 rounded-lg px-2 py-1.5 text-xs text-slate-300 max-w-xs truncate">
+                        {results.map((r, i) => (
+                          <option key={r.row.id} value={i}>
+                            {r.overallPassed ? '\u2705' : '\u274C'} {r.row.domain}{r.row.path}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Full detail view for the current result */}
+                    <div className="flex-1 overflow-y-auto">
+                      {/* Result header */}
+                      <div className="px-5 pt-5 pb-4">
+                        <div className="flex items-start gap-3">
+                          <div className="shrink-0 mt-0.5">
+                            {res.overallPassed
+                              ? <CheckCircle className="w-6 h-6 text-emerald-500" />
+                              : <XCircle className="w-6 h-6 text-red-500" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className={`text-xs font-bold uppercase px-2.5 py-0.5 rounded-full ${
+                                res.overallPassed ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-red-500/20 text-red-400 border border-red-500/30'}`}>
+                                {res.overallPassed ? 'PASS' : 'FAIL'}
                               </span>
+                              <Globe className="w-3.5 h-3.5 text-slate-500" />
+                              <span className="text-sm font-semibold text-slate-200">{res.row.domain}</span>
+                            </div>
+                            <div className="flex items-center gap-2 mt-1.5">
+                              <code className="text-xs text-slate-400 bg-slate-900/60 border border-slate-700/60 rounded px-2 py-1 truncate max-w-md" title={fullUrl}>
+                                {fullUrl}
+                              </code>
+                              <a href={fullUrl} target="_blank" rel="noopener noreferrer"
+                                className="shrink-0 text-slate-500 hover:text-blue-400 transition-colors">
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
                             </div>
                           </div>
-
-                          {/* Domain Group Results — sub-grouped by environment */}
-                          {!isDomainCollapsed && (
-                            <div>
-                              {group.envGroups.length === 0 ? (
-                                // No spoof IPs — flat list
-                                <div className="divide-y divide-slate-700/50">
-                                  {group.results.map((res) => {
-                                    const isExpanded = expandedRow === res.row.id;
-                                    const fullUrl = `https://${res.row.domain}${res.row.path}`;
-                                    return renderPathRow(res, isExpanded, fullUrl, null);
-                                  })}
-                                </div>
-                              ) : (
-                                group.envGroups.map((envGroup) => {
-                                  const envKey = `${group.domain}::${envGroup.envIdx}`;
-                                  const isEnvCollapsed = collapsedEnvGroups.has(envKey);
-                                  const c = getSpoofColor(envGroup.envIdx);
-
-                                  return (
-                                    <div key={envKey} className="border-b border-slate-700/60 last:border-b-0">
-                                      {/* Environment sub-group header */}
-                                      <div
-                                        onClick={() => toggleEnvGroupCollapse(envKey)}
-                                        className={`flex items-center gap-2.5 px-6 py-2.5 cursor-pointer transition-colors border-b ${c.border} bg-slate-900/40 hover:bg-slate-900/70`}
-                                      >
-                                        <div className="shrink-0">
-                                          {isEnvCollapsed
-                                            ? <ChevronRight className={`w-3.5 h-3.5 ${c.label}`} />
-                                            : <ChevronDown className={`w-3.5 h-3.5 ${c.label}`} />}
-                                        </div>
-                                        <div className={`w-2 h-2 rounded-full shrink-0 ${c.dot}`} />
-                                        <span className={`text-xs font-bold uppercase tracking-widest ${c.label}`}>
-                                          {envGroup.label}
-                                        </span>
-                                        <span className="text-[10px] text-slate-500 ml-1">
-                                          {envGroup.results.length} path{envGroup.results.length !== 1 ? 's' : ''}
-                                        </span>
-                                        <div className="flex items-center gap-1.5 ml-auto">
-                                          {envGroup.passCount > 0 && (
-                                            <span className="flex items-center gap-1 text-[10px] text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-full px-2 py-0.5">
-                                              <CheckCircle className="w-2.5 h-2.5" /> {envGroup.passCount}
-                                            </span>
-                                          )}
-                                          {envGroup.failCount > 0 && (
-                                            <span className="flex items-center gap-1 text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-full px-2 py-0.5">
-                                              <XCircle className="w-2.5 h-2.5" /> {envGroup.failCount}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {/* Paths for this environment */}
-                                      {!isEnvCollapsed && (
-                                        <div className="divide-y divide-slate-700/40">
-                                          {envGroup.results.map((res) => {
-                                            const isExpanded = expandedRow === res.row.id;
-                                            const fullUrl = `https://${res.row.domain}${res.row.path}`;
-                                            return renderPathRow(res, isExpanded, fullUrl, envGroup.envIdx);
-                                          })}
-                                        </div>
-                                      )}
-                                    </div>
-                                  );
-                                })
-                              )}
-                            </div>
-                          )}
-
                         </div>
-                      );
-                    })}
+
+                        {/* Status chips */}
+                        <div className="flex flex-wrap items-center gap-2 mt-4">
+                          <div className="flex items-center gap-2 bg-blue-500/10 border border-blue-500/30 rounded-lg px-3 py-1.5">
+                            <div className="flex items-center gap-1">
+                              <div className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider">Live</span>
+                            </div>
+                            <span className={`text-sm font-mono font-bold ${res.public.status === 'ERR' ? 'text-red-400' : 'text-blue-300'}`}>
+                              {res.public.status}
+                            </span>
+                            <span className="text-[10px] text-slate-500">{res.public.duration}ms</span>
+                          </div>
+                          {displayedSpoofs.map((spoof, si) => {
+                            const c = getSpoofColor(si);
+                            return (
+                              <div key={si} className={`flex items-center gap-2 border rounded-lg px-3 py-1.5 ${c.border} ${c.bg}`}>
+                                <div className="flex items-center gap-1">
+                                  <div className={`w-1.5 h-1.5 rounded-full ${c.dot}`} />
+                                  <span className={`text-[10px] font-bold uppercase tracking-wider ${c.label}`}>{getSpoofLabel(si)}</span>
+                                </div>
+                                <span className={`text-sm font-mono font-bold ${
+                                  spoof.result.status === 'ERR' ? 'text-red-400' : !spoof.statusMatch ? 'text-amber-300' : 'text-slate-200'}`}>
+                                  {spoof.result.status}
+                                </span>
+                                <span className={`text-[10px] font-semibold ${spoof.score >= 95 ? 'text-emerald-400' : 'text-red-400'}`}>
+                                  {spoof.score}%
+                                </span>
+                                {spoof.result.isBotChallenge && <span className="text-[10px] text-amber-400 font-bold" title="Bot challenge detected">⚠</span>}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* Drift reasons */}
+                      {displayedReasons.length > 0 && (
+                        <div className="mx-5 mb-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-lg text-xs text-amber-200">
+                          <strong className="block mb-1">Comparison Drift Detected:</strong>
+                          <ul className="list-disc pl-4 space-y-0.5">
+                            {displayedReasons.map((r, i) => <li key={i}>{r}</li>)}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Comparison Table */}
+                      <div className="px-5 pb-4">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 flex items-center gap-2">
+                          <Layers className="w-3 h-3" /> Side-by-Side Comparison
+                        </h4>
+                        <ComparisonTable publicRes={res.public} spoofedResults={displayedSpoofs} />
+                      </div>
+
+                      {/* Header Comparison */}
+                      <div className="px-5 pb-4">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-xs font-bold text-slate-400 uppercase flex items-center gap-2">
+                            <Layers className="w-3 h-3" /> Header Comparison
+                          </h4>
+                          <div className="flex items-center gap-3 text-[10px]">
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-amber-500 rounded" />
+                              <span className="text-slate-500">Significant Diff</span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <div className="w-2 h-2 bg-slate-700 rounded" />
+                              <span className="text-slate-500">Ignored</span>
+                            </div>
+                          </div>
+                        </div>
+                        {displayedSpoofs.map((spoof, si) => {
+                          const c = getSpoofColor(si);
+                          return (
+                            <div key={si} className="mb-3">
+                              <div className={`text-[10px] font-bold uppercase mb-1 ${c.label}`}>
+                                LIVE vs {getSpoofLabel(si)} ({spoof.ip})
+                              </div>
+                              <HeaderDiff
+                                pubHeaders={res.public.headers}
+                                spoofHeaders={spoof.result.headers}
+                                publicIp={res.public.connectedIp}
+                                spoofedIp={spoof.result.connectedIp}
+                              />
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* TLS Certificate Comparison */}
+                      {(res.public.tlsCert || displayedSpoofs.some(s => s.result.tlsCert)) && (
+                        <div className="px-5 pb-4">
+                          <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 flex items-center gap-2">
+                            <ShieldCheck className="w-3 h-3" /> TLS Certificate Comparison
+                          </h4>
+                          <TlsCertComparison
+                            liveCert={res.public.tlsCert}
+                            spoofCerts={displayedSpoofs.map((spoof, si) => ({
+                              label: getSpoofLabel(si), ip: spoof.ip, cert: spoof.result.tlsCert,
+                            }))}
+                          />
+                        </div>
+                      )}
+
+                      {/* Body Preview */}
+                      {displayedSpoofs.length > 0 && (
+                        <div className="px-5 pb-4">
+                          <h4 className="text-xs font-bold text-slate-400 uppercase mb-2 flex items-center gap-2">
+                            <Code className="w-3 h-3" /> Body Preview (Live vs {getSpoofLabel(0)})
+                          </h4>
+                          <div className="text-xs font-bold text-slate-500 mb-1">Normalized Body Preview (First 500 chars)</div>
+                          <DiffView
+                            left={res.public.normalizedBody.slice(0, 500)}
+                            right={displayedSpoofs[0].result.normalizedBody.slice(0, 500)}
+                            title="Normalized Content"
+                          />
+                        </div>
+                      )}
+
+                      {/* Bottom navigation */}
+                      <div className="px-5 pb-5 flex items-center justify-between">
+                        <button onClick={() => setCurrentResultIdx(Math.max(0, idx - 1))} disabled={idx === 0}
+                          className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-sm transition-colors">
+                          <ChevronLeft className="w-4 h-4" /> Previous
+                        </button>
+                        <span className="text-xs text-slate-500">{idx + 1} of {results.length}</span>
+                        <button onClick={() => setCurrentResultIdx(Math.min(results.length - 1, idx + 1))} disabled={idx === results.length - 1}
+                          className="flex items-center gap-2 px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 disabled:cursor-not-allowed rounded-lg text-sm transition-colors">
+                          Next <ChevronRight className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                )}
-              </div>
+                );
+              })()}
             </div>
           </div>
         </div>

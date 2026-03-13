@@ -6,6 +6,7 @@ import dns from 'node:dns';
 import http from 'node:http';
 import https from 'node:https';
 import zlib from 'node:zlib';
+import tls from 'node:tls';
 
 /**
  * Make HTTPS request to F5 XC API (and External APIs)
@@ -108,6 +109,30 @@ async function handleProxyRequest(req: IncomingMessage, res: ServerResponse) {
   }
 }
 
+/**
+ * Extract TLS certificate details from an HTTPS socket
+ */
+function extractCertInfo(socket: tls.TLSSocket | null): Record<string, any> | null {
+  if (!socket || typeof socket.getPeerCertificate !== 'function') return null;
+  try {
+    const cert = socket.getPeerCertificate(false);
+    if (!cert || !cert.subject) return null;
+    return {
+      subject: cert.subject?.CN || '',
+      issuer: cert.issuer?.CN || '',
+      issuerOrg: cert.issuer?.O || '',
+      validFrom: cert.valid_from || '',
+      validTo: cert.valid_to || '',
+      serialNumber: cert.serialNumber || '',
+      fingerprint256: cert.fingerprint256 || '',
+      subjectAltName: cert.subjectaltname || '',
+      protocol: socket.getProtocol?.() || '',
+    };
+  } catch {
+    return null;
+  }
+}
+
 export default defineConfig({
   plugins: [
     react(),
@@ -166,6 +191,11 @@ export default defineConfig({
 
                 const httpModule = isHttps ? https : http;
                 const proxyReq = httpModule.request(spoofOptions, (proxyRes) => {
+                  // Extract TLS certificate info from the socket
+                  const tlsCert = isHttps
+                    ? extractCertInfo((proxyReq.socket as tls.TLSSocket) || null)
+                    : null;
+
                   const chunks: Buffer[] = [];
                   let bodySize = 0;
                   const maxBodySize = 10 * 1024 * 1024; // 10MB limit
@@ -173,7 +203,7 @@ export default defineConfig({
                   // Handle compression
                   let responseStream = proxyRes;
                   const encoding = proxyRes.headers['content-encoding'];
-                  
+
                   if (encoding === 'gzip') {
                     responseStream = proxyRes.pipe(zlib.createGunzip());
                   } else if (encoding === 'deflate') {
@@ -201,10 +231,11 @@ export default defineConfig({
                       statusText: proxyRes.statusMessage,
                       headers: proxyRes.headers,
                       body: resBody,
-                      connectedIp: targetIp // The IP we connected to
+                      connectedIp: targetIp, // The IP we connected to
+                      tlsCert,
                     };
                     console.log(`[SanityProxy] Sending to frontend - connectedIp: ${responseData.connectedIp}`);
-                    res.writeHead(200, { 
+                    res.writeHead(200, {
                       'Content-Type': 'application/json',
                       'Access-Control-Allow-Origin': '*'
                     });
@@ -277,7 +308,12 @@ export default defineConfig({
                 const proxyReq = httpModule.request(liveOptions, (proxyRes) => {
                   // Use the resolved IP as the connected IP
                   const connectedIp = resolvedIp;
-                  
+
+                  // Extract TLS certificate info from the socket
+                  const tlsCert = isHttps
+                    ? extractCertInfo((proxyReq.socket as tls.TLSSocket) || null)
+                    : null;
+
                   const chunks: Buffer[] = [];
                   let bodySize = 0;
                   const maxBodySize = 10 * 1024 * 1024; // 10MB limit
@@ -285,7 +321,7 @@ export default defineConfig({
                   // Handle compression
                   let responseStream = proxyRes;
                   const encoding = proxyRes.headers['content-encoding'];
-                  
+
                   if (encoding === 'gzip') {
                     responseStream = proxyRes.pipe(zlib.createGunzip());
                   } else if (encoding === 'deflate') {
@@ -313,10 +349,11 @@ export default defineConfig({
                       statusText: proxyRes.statusMessage,
                       headers: proxyRes.headers,
                       body: resBody,
-                      connectedIp: connectedIp // The actual IP we connected to
+                      connectedIp: connectedIp, // The actual IP we connected to
+                      tlsCert,
                     };
                     console.log(`[SanityProxy] Sending to frontend - connectedIp: ${responseData.connectedIp}`);
-                    res.writeHead(200, { 
+                    res.writeHead(200, {
                       'Content-Type': 'application/json',
                       'Access-Control-Allow-Origin': '*'
                     });
