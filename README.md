@@ -65,10 +65,30 @@ npm run dev
 
 ```
 
-### 5. Access the Tool
+### 6. Access the Tool
 
 Once the server starts, open your browser and navigate to the local URL provided in the terminal (typically):
 👉 **`http://localhost:5173`**
+
+---
+
+## 🔄 Updating to the Latest Version
+
+If you already have the tool cloned on your system, run the following commands from the project directory to pull the latest changes:
+
+```bash
+cd xc-app-store
+git fetch origin && git reset --hard origin/main
+npm install
+```
+
+> **Note:** `git reset --hard origin/main` will overwrite any local changes you may have made. If you have local modifications you want to keep, back them up first.
+
+Then start the application as usual:
+
+```bash
+npm run dev
+```
 
 ---
 
