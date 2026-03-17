@@ -92,52 +92,176 @@ npm run dev
 
 ---
 
-## 🛠 Features
+## 🔌 Getting Connected
 
-### 1. Weekly Time Tracker
+Most tools require an F5 XC connection. On the home page, enter your **Tenant Name** (e.g., `my-tenant`) and **API Token**, then click **Connect**. The app validates credentials by fetching your namespace list. Once connected, all tools become available.
 
-Designed to eliminate the friction of manual time entry, this tool allows you to manage an entire week's timesheet from a single grid.
+---
 
-* **Searchable Dropdowns**: Quickly find Customers, Products, and Work Types by typing.
-* **Smart Upsert Logic**: Automatically detects if an entry is new, needs an update, or should be deleted.
-* **Manual Pre-fill**: Use the "Pre-fill from Last Week" button to instantly copy over account combinations used in the previous 7 days.
-* **Automatic Totals**: Real-time calculation of row totals, daily totals, and overall weekly effort.
-* **Session Security**: Option to remember your Bearer Token locally for seamless future access.
+## 🛠 Tools
 
-### 2. Property Viewer
+### 1. FP Analyzer (WAF False Positive Analyzer)
 
-Analyze and compare specific object properties across different F5 XC namespaces in a report-style view.
+Detects false positives in WAF security events using a 7-signal scoring system.
 
-* **Deep Inspection**: View full raw JSON configurations for any object directly in the tool.
-* **Selective Export**: Select specific data points and export them to CSV, Excel, or JSON formats.
+* Select a namespace and HTTP Load Balancer, choose a time range, and click **Analyze**
+* Reviews signatures, violations, bot classification, IP reputation, and threat intel
+* Each event gets a confidence score — high-score events are likely false positives
+* Export results as CSV or JSON for WAF exclusion rule creation
 
-### 3. Security Auditor & WAF Scanner
+### 2. Log Analyzer
 
-* **Security Auditor**: Runs automated checks against HTTP Load Balancer configurations to identify non-compliant security settings (e.g., weak TLS versions, WAF in monitoring mode).
-* **WAF Scanner**: Rapidly scans multiple namespaces to validate and report on the status of Web Application Firewall policies.
+General-purpose analytics dashboard for access logs and security events.
 
-### 4. Utilities
+* Select a namespace, add optional pre-fetch filters (domain, method, country, etc.), and choose a time range
+* Choose log source: **Access Logs**, **Security Events**, or **Both** (merged by `req_id`)
+* View summary cards (total logs, unique IPs, error rate), time series charts, and field-by-field statistics
+* **Field Analysis**: Pick any field to see distributions — numeric fields show percentiles and histograms, string fields show top values with bar charts
+* **Field Breakdown**: Add breakdown fields to cross-tabulate (e.g., User Agent broken down by Source IP and Country)
+* Apply post-fetch client-side filters to slice data without re-fetching
+* Export raw logs as JSON/CSV, or export breakdowns as CSV, Excel, or PDF
 
-* **HTTP LB Forge**: Build complex Load Balancer configurations using structured templates.
-* **Sanity Checker**: Test DNS and HTTP connectivity, supporting both live lookups and spoofed IP targets.
-* **Config Comparator**: A side-by-side JSON comparison utility to detect configuration drift between objects.
+### 3. Rate Limit Advisor
+
+Analyzes 7 days of traffic to recommend safe rate limit thresholds.
+
+* Select a namespace and Load Balancer, then click **Analyze**
+* Collects access logs and security events, computes per-IP and per-path request rates
+* Generates recommended rate limit values based on observed traffic patterns (legitimate vs. suspicious)
+* Export the full analysis report as PDF
+
+### 4. DDoS Settings Advisor
+
+Analyzes traffic patterns to recommend tuned L7 DDoS protection settings.
+
+* Select a namespace and Load Balancer
+* Scans recent traffic to find peak RPS, burst patterns, and baseline throughput
+* Produces recommendations for DDoS mitigation thresholds (slow DDoS, auto-mitigation settings)
+* Export report as PDF with charts and detailed findings
+
+### 5. Config Dump
+
+Exports the full configuration tree for any object type.
+
+* Select a namespace, then choose an object type (HTTP LB, Origin Pool, WAF Policy, etc.)
+* Fetches the object and all its referenced child objects recursively
+* View the configuration tree in the browser or download as JSON or PDF
+
+### 6. Config Viewer (Config Visualizer)
+
+Interactive map of Load Balancer configuration and dependencies.
+
+* Select a namespace and Load Balancer to visualize
+* Displays all linked objects: origin pools, routes, WAF policies, service policies, health checks, certificates, etc.
+* Click any node to inspect its full configuration
+
+### 7. Dependency Map (Config Explorer)
+
+Interactive relationship graph of all configuration objects in a namespace.
+
+* Select a namespace to scan all object types and their references
+* Four views: **Graph** (force-directed), **Table**, **Tree**, and **Matrix**
+* Search and filter by object type to trace dependencies
+
+### 8. Config Comparator
+
+Side-by-side JSON diff to detect configuration drift.
+
+* Compare objects across different namespaces or different tenants (connect a second tenant)
+* Select the object type and specific objects on each side
+* Highlights added, removed, and changed fields in a unified diff view
+
+### 9. Security Auditor
+
+Comprehensive security posture assessment for HTTP Load Balancers.
+
+* Select one or more namespaces to audit
+* Runs 30+ automated checks: TLS version, WAF mode, CORS settings, cookie security, HSTS, bot defense, DDoS protection, and more
+* Results are grouped by severity (Critical, High, Medium, Low) with remediation guidance
+* Export audit report as CSV or PDF
+
+### 10. WAF Status Scanner
+
+Quick audit of WAF deployment status across all Load Balancers.
+
+* Select one or more namespaces to scan
+* Shows each LB's WAF policy, mode (blocking/monitoring), and exclusion rule count
+* Flags LBs with no WAF, WAF in monitoring mode, or excessive exclusions
+
+### 11. HTTP Sanity Checker
+
+Compares HTTP responses between live DNS and spoofed IP targets.
+
+* Enter a URL and an optional spoof IP (e.g., the F5 XC VIP)
+* Sends requests via live DNS resolution and via the spoofed IP
+* Compares response status codes, headers, TLS certificates, and body content (fuzzy match)
+* Useful for validating DNS cutover readiness
+
+### 12. Property Viewer
+
+View and compare a specific property across all objects of a given type.
+
+* Select a namespace, object type, and the property path you want to inspect (e.g., `spec.waf`, `spec.domains`)
+* Displays the property value for every object in a table
+* Export selected rows as CSV, Excel, or JSON
+
+### 13. HTTP LB Forge
+
+Bulk-create HTTP Load Balancers from structured CSV input.
+
+* Upload a CSV with columns for domain, origin pool, routes, etc.
+* Preview the generated LB configurations before creating
+* Creates all LBs in one batch with progress tracking
+
+### 14. Prefix Builder
+
+Build IP prefix sets in bulk for firewall and routing rules.
+
+* Paste or upload a list of IP addresses/CIDRs
+* Validates and deduplicates entries
+* Creates the prefix set object in the selected namespace
+
+### 15. Copy Config
+
+Copy configuration objects across tenants or namespaces.
+
+* Connect source and destination tenants
+* Select the object type (Alert Receivers, Alert Policies, etc.)
+* Pick specific objects to copy — the tool handles cross-tenant API calls
+
+### 16. Load Tester
+
+Stress test any HTTP endpoint with configurable parameters.
+
+* Enter a target URL, set RPS (requests per second), concurrency, and duration
+* Real-time charts showing response times, throughput, and error rates
+* Standalone tool — does not require F5 XC connection
+
+### 17. Weekly Time Tracker
+
+Manage weekly timesheets from a single grid.
+
+* Searchable dropdowns for Customer, Product, and Work Type
+* Automatic totals for rows, days, and weekly effort
+* Pre-fill from the previous week's entries
+* Standalone tool — uses its own Bearer Token authentication
 
 ---
 
 ## 🏗 Architecture & Security
 
-* **Frontend**: React 18 with TypeScript for robust type safety.
-* **Styling**: Modern, responsive dark-themed UI powered by TailwindCSS and Lucide Icons.
-* **Backend Proxy**: A custom Vite middleware proxy routes all API requests through your local server to bypass browser CORS restrictions.
-* **Auth Handling**: The proxy intelligently manages different authentication standards:
-* **F5 XC APIs**: Uses `APIToken <token>` header.
-* **Time Tracker APIs**: Uses `Bearer <token>` header.
-
-
+* **Frontend**: React 18 + TypeScript + Vite + TailwindCSS
+* **Backend Proxy**: A Vite middleware proxy routes all API requests through `localhost` to bypass browser CORS restrictions. No credentials are sent to any third-party server.
+* **Auth Handling**:
+  * **F5 XC APIs**: `APIToken <token>` header
+  * **Time Tracker APIs**: `Bearer <token>` header
+* **Credentials**: Stored in browser localStorage only. Never transmitted except to the configured F5 XC tenant.
+* **Rate Limiting**: Adaptive concurrency control prevents API throttling (automatic 429 backoff).
 
 ---
 
 ## 📝 Usage Notes
 
-* **Settings**: Use the **Settings (gear icon)** in each tool to update your Tenant ID or API Tokens.
-* **Hardcoded Endpoints**: The Time Tracker is hardcoded to route through the secure proxy at `time-tracker.mgdsvc-ai.f5sdclabs.com` to ensure data integrity.
+* **Connection**: Use the connection panel on the home page to set your Tenant Name and API Token. Credentials persist across browser sessions.
+* **Read-Only vs. Write Tools**: Most tools are read-only (analyze, audit, export). Tools that create or modify objects (Prefix Builder, HTTP LB Forge, Copy Config) are clearly tagged.
+* **Exports**: Many tools support export to CSV, Excel, JSON, and PDF formats via download buttons in the results section.
