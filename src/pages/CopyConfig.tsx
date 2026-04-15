@@ -24,7 +24,7 @@ import { apiClient } from '../services/api';
 import { F5XCApiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
-import type { Namespace, AlertReceiver, AlertPolicy, ConfigObjectType } from '../types';
+import type { Namespace, AlertReceiver, AlertPolicy, CDNCacheRule, ConfigObjectType } from '../types';
 
 type CopyMode = 'cross-tenant' | 'cross-namespace';
 type Step = 1 | 2 | 3 | 4;
@@ -33,7 +33,7 @@ interface SelectedObject {
   type: ConfigObjectType;
   name: string;
   namespace: string;
-  data: AlertReceiver | AlertPolicy;
+  data: AlertReceiver | AlertPolicy | CDNCacheRule;
 }
 
 interface CopyResult {
@@ -57,9 +57,11 @@ export function CopyConfig() {
   const [isLoadingSourceNs, setIsLoadingSourceNs] = useState(true);
 
   // Destination tenant (for cross-tenant mode)
+  const DEST_CREDS_KEY = 'xc_copyconfig_dest_creds';
   const [destTenant, setDestTenant] = useState('');
   const [destApiToken, setDestApiToken] = useState('');
   const [showDestToken, setShowDestToken] = useState(false);
+  const [rememberDest, setRememberDest] = useState(false);
   const [isValidatingDest, setIsValidatingDest] = useState(false);
   const [destValidated, setDestValidated] = useState(false);
   const [destNamespaces, setDestNamespaces] = useState<Namespace[]>([]);
@@ -87,6 +89,18 @@ export function CopyConfig() {
       return;
     }
     loadSourceNamespaces();
+    // Restore remembered destination credentials
+    try {
+      const saved = localStorage.getItem(DEST_CREDS_KEY);
+      if (saved) {
+        const { tenant: t, token } = JSON.parse(saved);
+        if (t) setDestTenant(t);
+        if (token) setDestApiToken(token);
+        setRememberDest(true);
+      }
+    } catch {
+      // ignore corrupt storage
+    }
   }, [isConnected, navigate]);
 
   const loadSourceNamespaces = async () => {
@@ -98,6 +112,15 @@ export function CopyConfig() {
       toast.error('Failed to load namespaces');
     } finally {
       setIsLoadingSourceNs(false);
+    }
+  };
+
+  const handleRememberChange = (checked: boolean) => {
+    setRememberDest(checked);
+    if (checked && destTenant.trim() && destApiToken.trim()) {
+      localStorage.setItem(DEST_CREDS_KEY, JSON.stringify({ tenant: destTenant.trim(), token: destApiToken.trim() }));
+    } else if (!checked) {
+      localStorage.removeItem(DEST_CREDS_KEY);
     }
   };
 
@@ -117,6 +140,9 @@ export function CopyConfig() {
       );
       setDestNamespaces(resp.items.sort((a, b) => a.name.localeCompare(b.name)));
       setDestValidated(true);
+      if (rememberDest) {
+        localStorage.setItem(DEST_CREDS_KEY, JSON.stringify({ tenant: destTenant.trim(), token: destApiToken.trim() }));
+      }
       toast.success(`Connected to ${destTenant}`);
     } catch (err) {
       toast.error('Failed to connect to destination tenant. Check credentials.');
@@ -148,6 +174,12 @@ export function CopyConfig() {
           name: item.metadata?.name || item.name || 'unknown',
           data: item,
         }));
+      } else if (selectedObjectType === 'cdn_cache_rule') {
+        const resp = await apiClient.getCDNCacheRules(selectedSourceNs);
+        items = (resp.items || []).map(item => ({
+          name: item.metadata?.name || item.name || 'unknown',
+          data: item,
+        }));
       }
 
       setAvailableObjects(items);
@@ -159,10 +191,10 @@ export function CopyConfig() {
   };
 
   useEffect(() => {
-    if (selectedSourceNs && step >= 2) {
+    if (selectedSourceNs && step === 2) {
       loadConfigObjects();
     }
-  }, [selectedSourceNs, selectedObjectType]);
+  }, [selectedSourceNs, selectedObjectType, step]);
 
   const toggleObjectSelection = (name: string) => {
     setSelectedObjects(prev =>
@@ -186,12 +218,14 @@ export function CopyConfig() {
     // The list API often returns minimal data, we need to GET each object individually
     for (const name of selectedObjects) {
       try {
-        let fullData: AlertReceiver | AlertPolicy;
-        
+        let fullData: AlertReceiver | AlertPolicy | CDNCacheRule;
+
         if (selectedObjectType === 'alert_receiver') {
           fullData = await apiClient.getAlertReceiver(selectedSourceNs, name);
-        } else {
+        } else if (selectedObjectType === 'alert_policy') {
           fullData = await apiClient.getAlertPolicy(selectedSourceNs, name);
+        } else {
+          fullData = await apiClient.getCDNCacheRule(selectedSourceNs, name);
         }
         
         console.log(`[CopyConfig] Fetched full details for ${name}:`, JSON.stringify(fullData, null, 2));
@@ -323,7 +357,9 @@ export function CopyConfig() {
     for (const obj of objectsToPreview) {
       try {
         const payload = prepareCreatePayload(obj.data, targetNamespace);
-        const apiPath = selectedObjectType === 'alert_receiver' ? 'alert_receivers' : 'alert_policys';
+        const apiPath = selectedObjectType === 'alert_receiver' ? 'alert_receivers'
+          : selectedObjectType === 'alert_policy' ? 'alert_policys'
+          : 'cdn_cache_rules';
 
         if (copyMode === 'cross-tenant' && targetToken) {
           await F5XCApiClient.proxyRequestStatic(
@@ -406,12 +442,12 @@ export function CopyConfig() {
       <div className="border-b border-slate-800 bg-slate-900/80 backdrop-blur-md sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Link
-              to="/"
+            <button
+              onClick={() => step === 1 ? navigate('/') : setStep(1)}
               className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
-            </Link>
+            </button>
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 bg-emerald-500/15 rounded-xl flex items-center justify-center text-emerald-400">
                 <Copy className="w-5 h-5" />
@@ -534,6 +570,7 @@ export function CopyConfig() {
                         onChange={e => {
                           setDestTenant(e.target.value);
                           setDestValidated(false);
+                          if (rememberDest) localStorage.removeItem(DEST_CREDS_KEY);
                         }}
                         placeholder="destination-tenant"
                         className="w-full px-4 py-3 pr-48 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 font-mono text-sm focus:outline-none focus:border-emerald-500 placeholder:text-slate-600"
@@ -556,6 +593,7 @@ export function CopyConfig() {
                         onChange={e => {
                           setDestApiToken(e.target.value);
                           setDestValidated(false);
+                          if (rememberDest) localStorage.removeItem(DEST_CREDS_KEY);
                         }}
                         placeholder="API token for destination tenant"
                         className="w-full px-4 py-3 pr-12 bg-slate-900 border border-slate-700 rounded-lg text-slate-100 font-mono text-sm focus:outline-none focus:border-emerald-500 placeholder:text-slate-600"
@@ -571,7 +609,7 @@ export function CopyConfig() {
                   </div>
                 </div>
 
-                <div className="mt-4 flex items-center gap-4">
+                <div className="mt-4 flex items-center gap-4 flex-wrap">
                   <button
                     onClick={validateDestinationTenant}
                     disabled={isValidatingDest || !destTenant.trim() || !destApiToken.trim()}
@@ -584,6 +622,16 @@ export function CopyConfig() {
                     )}
                     Validate Connection
                   </button>
+
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={rememberDest}
+                      onChange={e => handleRememberChange(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-600 bg-slate-900 text-emerald-500 accent-emerald-500 cursor-pointer"
+                    />
+                    <span className="text-sm text-slate-400">Remember credentials</span>
+                  </label>
 
                   {destValidated && (
                     <span className="flex items-center gap-2 text-emerald-400 text-sm">
@@ -692,20 +740,25 @@ export function CopyConfig() {
             </div>
 
             {/* Object Type Selector */}
-            <div className="flex items-center gap-4 p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
-              <span className="text-sm text-slate-400">Object Type:</span>
-              <div className="flex gap-2">
-                {(['alert_receiver', 'alert_policy'] as ConfigObjectType[]).map(type => (
+            <div className="p-4 bg-slate-800/50 border border-slate-700 rounded-xl">
+              <p className="text-xs text-slate-500 mb-3">Select a config type to load objects from <span className="text-blue-400 font-medium">{selectedSourceNs}</span>:</p>
+              <div className="flex gap-3">
+                {(['alert_receiver', 'alert_policy', 'cdn_cache_rule'] as ConfigObjectType[]).map(type => (
                   <button
                     key={type}
                     onClick={() => setSelectedObjectType(type)}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-2 px-5 py-2.5 rounded-lg text-sm font-semibold border-2 transition-all ${
                       selectedObjectType === type
-                        ? 'bg-blue-500 text-white'
-                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        ? 'bg-blue-500 border-blue-500 text-white shadow-lg shadow-blue-500/20'
+                        : 'bg-slate-700 border-slate-600 text-slate-300 hover:border-blue-500/50 hover:text-white'
                     }`}
                   >
-                    {type === 'alert_receiver' ? 'Alert Receivers' : 'Alert Policies'}
+                    {selectedObjectType === type && isLoadingObjects
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : selectedObjectType === type
+                      ? <Check className="w-4 h-4" />
+                      : null}
+                    {type === 'alert_receiver' ? 'Alert Receivers' : type === 'alert_policy' ? 'Alert Policies' : 'CDN Cache Rules'}
                   </button>
                 ))}
               </div>
@@ -715,16 +768,9 @@ export function CopyConfig() {
             <div className="bg-slate-800/50 border border-slate-700 rounded-xl">
               <div className="flex items-center justify-between px-4 py-3 border-b border-slate-700">
                 <span className="text-sm font-semibold text-slate-300">
-                  Available {selectedObjectType === 'alert_receiver' ? 'Alert Receivers' : 'Alert Policies'}
+                  Available {selectedObjectType === 'alert_receiver' ? 'Alert Receivers' : selectedObjectType === 'alert_policy' ? 'Alert Policies' : 'CDN Cache Rules'}
                 </span>
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={loadConfigObjects}
-                    className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors"
-                    title="Refresh"
-                  >
-                    <RefreshCw className="w-4 h-4" />
-                  </button>
                   <button
                     onClick={selectAllObjects}
                     className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-700 rounded-lg transition-colors"
@@ -747,7 +793,7 @@ export function CopyConfig() {
                   </div>
                 ) : availableObjects.length === 0 ? (
                   <div className="text-center py-12 text-slate-500">
-                    No {selectedObjectType === 'alert_receiver' ? 'alert receivers' : 'alert policies'} found in {selectedSourceNs}
+                    No {selectedObjectType === 'alert_receiver' ? 'alert receivers' : selectedObjectType === 'alert_policy' ? 'alert policies' : 'CDN cache rules'} found in {selectedSourceNs}
                   </div>
                 ) : (
                   <div className="space-y-2">
@@ -933,6 +979,11 @@ export function CopyConfig() {
                   {selectedObjectType === 'alert_policy' && (
                     <span className="block mt-1">
                       Alert Policies reference Alert Receivers. Make sure the referenced receivers exist in the destination namespace.
+                    </span>
+                  )}
+                  {selectedObjectType === 'cdn_cache_rule' && (
+                    <span className="block mt-1">
+                      CDN Cache Rules are standalone objects. After copying, attach them to your CDN Load Balancer in the destination namespace.
                     </span>
                   )}
                 </span>

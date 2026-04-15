@@ -77,27 +77,52 @@ class F5XCApiClient {
     return data as T;
   }
 
-  // Inside src/services/api.ts, add this method to the F5XCApiClient class:
+  async requestExternal<T>(tenant: string, token: string, endpoint: string, method = 'GET'): Promise<T> {
+    const response = await fetch(PROXY_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tenant,
+        token,
+        endpoint,
+        method,
+      }),
+    });
 
-async requestExternal<T>(tenant: string, token: string, endpoint: string, method = 'GET'): Promise<T> {
-  const response = await fetch(PROXY_ENDPOINT, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      tenant,
-      token,
-      endpoint,
-      method,
-    }),
-  });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.message || `External API Error: ${response.statusText}`);
+    }
 
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.message || `External API Error: ${response.statusText}`);
+    return response.json();
   }
 
-  return response.json();
-}
+  static async proxyRequestStatic<T>(tenant: string, token: string, endpoint: string, method = 'GET', body?: unknown): Promise<T> {
+    const response = await fetch(PROXY_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant, token, endpoint, method, body }),
+    });
+
+    const text = await response.text();
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      if (!response.ok) {
+        const preview = text.length < 200 ? text : text.slice(0, 150) + '...';
+        throw new Error(`API Error ${response.status}: ${preview}`);
+      }
+      return {} as T;
+    }
+
+    if (!response.ok) {
+      const err = (data as Record<string, string>).message || (data as Record<string, string>).error || `API Error: ${response.statusText}`;
+      throw new Error(err);
+    }
+
+    return data as T;
+  }
 
   async get<T>(path: string): Promise<T> {
     return this.proxyRequest<T>(path, 'GET');
@@ -178,6 +203,10 @@ async requestExternal<T>(tenant: string, token: string, endpoint: string, method
   // --- CDN APIs ---
   async getCDNLoadBalancers(namespace: string): Promise<{ items: CDNLoadBalancer[] }> {
     return this.get(`/api/config/namespaces/${namespace}/cdn_loadbalancers`);
+  }
+
+  async getCDNCacheRules(namespace: string): Promise<{ items: CDNCacheRule[] }> {
+    return this.get(`/api/config/namespaces/${namespace}/cdn_cache_rules`);
   }
 
   async getCDNCacheRule(namespace: string, name: string): Promise<CDNCacheRule> {

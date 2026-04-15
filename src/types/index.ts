@@ -1395,7 +1395,7 @@ export interface AlertPolicyRoute {
 
 // --- Config Object Types for Copy Config Tool ---
 
-export type ConfigObjectType = 'alert_receiver' | 'alert_policy';
+export type ConfigObjectType = 'alert_receiver' | 'alert_policy' | 'cdn_cache_rule';
 
 export interface ConfigObjectInfo {
   type: ConfigObjectType;
@@ -1419,5 +1419,12 @@ export const CONFIG_OBJECT_TYPES: Record<ConfigObjectType, ConfigObjectInfo> = {
     displayName: 'Alert Policy',
     apiPath: 'alert_policys',
     apiPathPlural: 'alert_policys',
+  },
+  cdn_cache_rule: {
+    type: 'cdn_cache_rule',
+    name: 'cdn_cache_rule',
+    displayName: 'CDN Cache Rule',
+    apiPath: 'cdn_cache_rules',
+    apiPathPlural: 'cdn_cache_rules',
   },
 };
