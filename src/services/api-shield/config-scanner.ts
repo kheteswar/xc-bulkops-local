@@ -363,6 +363,7 @@ interface ControlFieldMapping {
 }
 
 const CONTROL_FIELD_MAP: Record<string, ControlFieldMapping> = {
+  // Internal assessor IDs
   'waf': { fields: ['wafEnabled'] },
   'api-discovery': { fields: ['apiDiscoveryEnabled'] },
   'api-definition': { fields: ['apiDefinitionAttached'] },
@@ -380,6 +381,112 @@ const CONTROL_FIELD_MAP: Record<string, ControlFieldMapping> = {
   'user-identification': { fields: ['userIdentificationEnabled'] },
   'service-policy': { fields: ['servicePolicies'] },
   'api-protection': { fields: ['schemaValidationEnabled', 'apiDefinitionAttached'], requireAll: true },
+
+  // Catalog control IDs → map to the same LBSecurityConfig booleans
+  // WAF controls
+  'waf_app_firewall': { fields: ['wafEnabled'] },
+  'waf_blocking_mode': { fields: ['wafEnabled'] },
+  'waf_high_medium_signatures': { fields: ['wafEnabled'] },
+  'waf_attack_types_all': { fields: ['wafEnabled'] },
+  'waf_api_specific_signatures': { fields: ['wafEnabled'] },
+  'waf_exclusion_rules': { fields: ['wafEnabled'] },
+  'waf_bot_signature_detection': { fields: ['wafEnabled'] },
+  'waf_csrf_protection': { fields: ['wafEnabled'] },
+  'waf_graphql_protection': { fields: ['wafEnabled'] },
+  'waf_allowed_methods': { fields: ['wafEnabled'] },
+
+  // API Discovery controls
+  'discovery_traffic_based': { fields: ['apiDiscoveryEnabled'] },
+  'discovery_sensitive_data': { fields: ['apiDiscoveryEnabled'] },
+  'discovery_shadow_api_detection': { fields: ['apiDiscoveryEnabled'] },
+  'discovery_authentication_state': { fields: ['apiDiscoveryEnabled'] },
+  'discovery_api_groups': { fields: ['apiDiscoveryEnabled'] },
+  'discovery_inventory_review': { fields: ['apiDiscoveryEnabled'] },
+  'discovery_learnt_schema': { fields: ['apiDiscoveryEnabled'] },
+  'discovery_zombie_api_detection': { fields: ['apiDiscoveryEnabled'] },
+  'discovery_endpoint_risk_scoring': { fields: ['apiDiscoveryEnabled'] },
+
+  // Schema / API Definition controls
+  'schema_oas_upload': { fields: ['apiDefinitionAttached'] },
+  'schema_api_definition_attach': { fields: ['apiDefinitionAttached'] },
+  'schema_request_validation': { fields: ['schemaValidationEnabled'] },
+  'schema_response_validation': { fields: ['schemaValidationEnabled'] },
+  'schema_parameter_validation': { fields: ['schemaValidationEnabled'] },
+  'schema_content_type_enforcement': { fields: ['schemaValidationEnabled'] },
+  'schema_validation_mode_block': { fields: ['schemaValidationEnabled'] },
+  'schema_validation_mode_report': { fields: ['schemaValidationEnabled'] },
+  'schema_custom_rules': { fields: ['schemaValidationEnabled'] },
+  'schema_version_management': { fields: ['apiDefinitionAttached'] },
+
+  // Bot Defense controls
+  'bot_defense_enable': { fields: ['botDefenseEnabled'] },
+  'bot_defense_api_endpoints': { fields: ['botDefenseEnabled'] },
+  'bot_defense_behavioral_analysis': { fields: ['botDefenseEnabled'] },
+  'bot_defense_js_challenge': { fields: ['botDefenseEnabled'] },
+  'bot_defense_captcha': { fields: ['botDefenseEnabled'] },
+  'bot_defense_good_bot_allowlist': { fields: ['botDefenseEnabled'] },
+  'bot_defense_mobile_sdk': { fields: ['botDefenseEnabled'] },
+
+  // DDoS controls
+  'ddos_l7_protection': { fields: ['ddosProtectionEnabled'] },
+  'ddos_auto_mitigation': { fields: ['ddosProtectionEnabled'] },
+  'ddos_custom_rps_threshold': { fields: ['ddosProtectionEnabled'] },
+  'ddos_mitigation_rules': { fields: ['ddosProtectionEnabled'] },
+  'ddos_slow_request': { fields: ['slowDdosProtectionEnabled'] },
+  'ddos_js_challenge_delay': { fields: ['ddosProtectionEnabled'] },
+
+  // Rate Limiting controls
+  'rate_limit_global': { fields: ['rateLimitEnabled'] },
+  'rate_limit_per_client': { fields: ['rateLimitEnabled'] },
+  'rate_limit_per_endpoint': { fields: ['rateLimitEnabled'] },
+  'rate_limit_burst_control': { fields: ['rateLimitEnabled'] },
+  'rate_limit_write_endpoints': { fields: ['rateLimitEnabled'] },
+  'rate_limit_custom_identifier': { fields: ['rateLimitEnabled'] },
+  'rate_limit_response_headers': { fields: ['rateLimitEnabled'] },
+  'rate_limit_service_policy': { fields: ['servicePolicies'] },
+
+  // Access Control controls
+  'access_service_policy': { fields: ['servicePolicies'] },
+  'access_cors_policy': { fields: ['corsEnabled'] },
+  'access_mtls': { fields: ['mtlsEnabled'] },
+  'access_ip_allowlist': { fields: ['servicePolicies'] },
+  'access_jwt_validation': { fields: ['servicePolicies'] },
+  'access_api_key_policy': { fields: ['servicePolicies'] },
+  'access_per_route_policies': { fields: ['servicePolicies'] },
+  'access_geo_filtering': { fields: ['servicePolicies'] },
+  'access_header_manipulation': { fields: ['servicePolicies'] },
+  'access_oauth2_integration': { fields: ['servicePolicies'] },
+
+  // Sensitive Data controls
+  'sensitive_data_guard': { fields: ['dataGuardEnabled'] },
+  'sensitive_data_discovery': { fields: ['sensitiveDataDiscoveryEnabled'] },
+  'sensitive_data_response_masking': { fields: ['dataGuardEnabled'] },
+  'sensitive_data_pci_compliance': { fields: ['dataGuardEnabled'] },
+  'sensitive_data_custom_patterns': { fields: ['sensitiveDataDiscoveryEnabled'] },
+  'sensitive_data_log_redaction': { fields: ['sensitiveDataDiscoveryEnabled'] },
+  'sensitive_data_error_sanitization': { fields: ['sensitiveDataDiscoveryEnabled'] },
+
+  // Threat Detection controls
+  'threat_ip_reputation': { fields: ['ipReputationEnabled'] },
+  'threat_ip_categories': { fields: ['ipReputationEnabled'] },
+  'threat_mesh': { fields: ['ipReputationEnabled'] },
+  'threat_malicious_user': { fields: ['maliciousUserDetectionEnabled'] },
+  'threat_user_identification': { fields: ['userIdentificationEnabled'] },
+  'threat_api_abuse_detection': { fields: ['maliciousUserDetectionEnabled'] },
+  'threat_geo_anomaly_detection': { fields: ['ipReputationEnabled'] },
+  'threat_failed_auth_tracking': { fields: ['maliciousUserDetectionEnabled'] },
+
+  // Monitoring controls — these can't be detected from LB config alone
+  'monitor_security_dashboard': { fields: ['wafEnabled'] },
+  'monitor_log_streaming': { fields: ['wafEnabled'] },
+  'monitor_alert_policies': { fields: ['wafEnabled'] },
+  'monitor_alert_receivers': { fields: ['wafEnabled'] },
+  'monitor_security_event_logging': { fields: ['wafEnabled'] },
+  'monitor_api_traffic_anomalies': { fields: ['apiDiscoveryEnabled'] },
+  'monitor_compliance_reporting': { fields: ['wafEnabled'] },
+  'monitor_incident_response_plan': { fields: ['wafEnabled'] },
+  'monitor_custom_dashboards': { fields: ['wafEnabled'] },
+  'monitor_sla_tracking': { fields: ['apiDiscoveryEnabled'] },
 };
 
 // ═══════════════════════════════════════════════════════════════════
