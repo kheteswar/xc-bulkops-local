@@ -279,7 +279,9 @@ export function APIShieldAdvisor() {
           </Link>
         </div>
         {results && <div className="flex items-center gap-2">
-          <button onClick={() => { setResults(null); setPMsg(''); setPPct(0); }} className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors">New Scan</button>
+          <button onClick={() => { setResults(null); setPMsg(''); setPPct(0); }} className="flex items-center gap-1.5 px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Back to Config
+          </button>
           <button onClick={exportR} className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"><Download className="w-4 h-4" />Export</button>
         </div>}
       </div>
