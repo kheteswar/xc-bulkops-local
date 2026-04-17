@@ -74,9 +74,12 @@ export function Slideshow({ slides, toolName, toolRoute, toolIcon: ToolIcon }: S
           </div>
         </div>
 
-        {/* Slide — uses full screen space */}
-        <div className="flex-1 overflow-y-auto px-10 lg:px-16 xl:px-24 py-6">
-          <Slide />
+        {/* Slide — zoomed up to fill the screen */}
+        <div className="flex-1 overflow-y-auto flex items-start justify-center p-6"
+          style={{ zoom: 'calc(100vh / 750)' }}>
+          <div className="w-full max-w-5xl">
+            <Slide />
+          </div>
         </div>
 
         {/* Bottom nav — minimal */}

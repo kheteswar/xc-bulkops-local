@@ -523,8 +523,9 @@ export function RateLimitExplainer() {
             <button onClick={toggleFullscreen} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg"><Minimize2 className="w-5 h-5" /></button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-10 lg:px-16 xl:px-24 py-6">
-          <SlideComponent />
+        <div className="flex-1 overflow-y-auto flex items-start justify-center p-6"
+          style={{ zoom: 'calc(100vh / 750)' }}>
+          <div className="w-full max-w-5xl"><SlideComponent /></div>
         </div>
         <div className="flex items-center justify-between px-8 py-4">
           <button onClick={() => setCurrentSlide(s => Math.max(s - 1, 0))} disabled={currentSlide === 0}
