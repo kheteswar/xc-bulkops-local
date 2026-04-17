@@ -348,7 +348,13 @@ export function APIShieldAdvisor() {
                       <div key={String(l)} className="flex items-center justify-between"><span className="text-sm text-slate-300">{l}</span><span className={`text-lg font-bold ${c}`}>{v}</span></div>
                     ))}
                   </div>
-                  <div className="mt-3 pt-3 border-t border-slate-700 text-xs text-slate-500">{results.lbNames.length} LB(s), {(results.assessmentDurationMs / 1000).toFixed(1)}s ({results.depth})</div>
+                  <div className="mt-3 pt-3 border-t border-slate-700 text-xs space-y-1">
+                    <div className="flex items-center justify-between"><span className="text-slate-500">Namespace:</span><span className="text-slate-300 font-mono">{results.namespace}</span></div>
+                    <div className="text-slate-500">Load Balancer{results.lbNames.length > 1 ? 's' : ''}:
+                      {results.lbNames.map(lb => <span key={lb} className="ml-1 inline-block px-1.5 py-0.5 bg-slate-700 text-slate-300 rounded font-mono text-[10px]">{lb}</span>)}
+                    </div>
+                    <div className="text-slate-500">{(results.assessmentDurationMs / 1000).toFixed(1)}s · {results.depth} scan</div>
+                  </div>
                 </div>
                 <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
                   <h3 className="text-sm font-semibold text-slate-400 mb-4">Phase Progress</h3>
