@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Shield, Gauge, Droplets, Check, X,
+  ArrowLeft, Shield, Gauge, Droplets, Check, X, Maximize2, Minimize2,
   TrendingUp, Users, Zap, ChevronRight, ChevronLeft,
 } from 'lucide-react';
 
@@ -476,18 +476,60 @@ const SLIDES = [
 export function RateLimitExplainer() {
   const navigate = useNavigate();
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
-  // Keyboard navigation
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); setCurrentSlide(s => Math.min(s + 1, SLIDES.length - 1)); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); setCurrentSlide(s => Math.max(s - 1, 0)); }
+      if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []);
+  }, [toggleFullscreen]);
 
   const SlideComponent = SLIDES[currentSlide].component;
+
+  if (isFullscreen) {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col">
+        <div className="flex items-center justify-between px-8 py-4">
+          <div className="flex items-center gap-1">
+            {SLIDES.map((_, i) => (
+              <button key={i} onClick={() => setCurrentSlide(i)}
+                className={`h-2 rounded-full transition-all ${i === currentSlide ? 'bg-blue-500 w-8' : 'bg-slate-700 hover:bg-slate-600 w-2'}`} />
+            ))}
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-slate-500">{currentSlide + 1} / {SLIDES.length}</span>
+            <button onClick={toggleFullscreen} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg"><Minimize2 className="w-5 h-5" /></button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-16 py-6"><div className="max-w-5xl mx-auto"><SlideComponent /></div></div>
+        <div className="flex items-center justify-between px-8 py-4">
+          <button onClick={() => setCurrentSlide(s => Math.max(s - 1, 0))} disabled={currentSlide === 0}
+            className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 disabled:opacity-20 text-sm"><ChevronLeft className="w-5 h-5" /> Previous</button>
+          <span className="text-xs text-slate-600">Press F to exit · Arrow keys to navigate</span>
+          <button onClick={() => setCurrentSlide(s => Math.min(s + 1, SLIDES.length - 1))} disabled={currentSlide === SLIDES.length - 1}
+            className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 disabled:opacity-20 text-sm">Next <ChevronRight className="w-5 h-5" /></button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <main className="max-w-5xl mx-auto px-6 py-6 min-h-screen flex flex-col">
@@ -503,7 +545,13 @@ export function RateLimitExplainer() {
               title={SLIDES[i].title} />
           ))}
         </div>
-        <div className="text-xs text-slate-500">{currentSlide + 1} / {SLIDES.length}</div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">{currentSlide + 1} / {SLIDES.length}</span>
+          <button onClick={toggleFullscreen} title="Present fullscreen (F)"
+            className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
+            <Maximize2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Slide content */}
@@ -514,7 +562,7 @@ export function RateLimitExplainer() {
       {/* Bottom navigation */}
       <div className="flex items-center justify-between mt-6 pb-4">
         <button onClick={() => setCurrentSlide(s => Math.max(s - 1, 0))} disabled={currentSlide === 0}
-          className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 border border-slate-700 hover:border-slate-500 disabled:opacity-30 disabled:hover:border-slate-700 text-slate-200 rounded-lg text-sm transition-colors">
+          className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 border border-slate-700 hover:border-slate-500 disabled:opacity-30 text-slate-200 rounded-lg text-sm transition-colors">
           <ChevronLeft className="w-4 h-4" /> Previous
         </button>
 
@@ -524,7 +572,7 @@ export function RateLimitExplainer() {
         </button>
 
         <button onClick={() => setCurrentSlide(s => Math.min(s + 1, SLIDES.length - 1))} disabled={currentSlide === SLIDES.length - 1}
-          className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 border border-slate-700 hover:border-slate-500 disabled:opacity-30 disabled:hover:border-slate-700 text-slate-200 rounded-lg text-sm transition-colors">
+          className="flex items-center gap-2 px-5 py-2.5 bg-slate-800 border border-slate-700 hover:border-slate-500 disabled:opacity-30 text-slate-200 rounded-lg text-sm transition-colors">
           Next <ChevronRight className="w-4 h-4" />
         </button>
       </div>

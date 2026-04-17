@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, type LucideIcon } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Maximize2, Minimize2, type LucideIcon } from 'lucide-react';
 
 export interface SlideDefinition {
   title: string;
@@ -25,18 +25,79 @@ interface SlideshowProps {
 export function Slideshow({ slides, toolName, toolRoute, toolIcon: ToolIcon }: SlideshowProps) {
   const navigate = useNavigate();
   const [current, setCurrent] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().then(() => setIsFullscreen(true)).catch(() => {});
+    } else {
+      document.exitFullscreen().then(() => setIsFullscreen(false)).catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    const onFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', onFsChange);
+    return () => document.removeEventListener('fullscreenchange', onFsChange);
+  }, []);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); setCurrent(s => Math.min(s + 1, slides.length - 1)); }
       if (e.key === 'ArrowLeft') { e.preventDefault(); setCurrent(s => Math.max(s - 1, 0)); }
+      if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFullscreen(); }
+      if (e.key === 'Escape' && isFullscreen) { /* browser handles exit */ }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [slides.length]);
+  }, [slides.length, isFullscreen, toggleFullscreen]);
 
   const Slide = slides[current].component;
 
+  // Fullscreen presentation mode
+  if (isFullscreen) {
+    return (
+      <div className="fixed inset-0 z-[9999] bg-slate-900 flex flex-col">
+        {/* Minimal top bar */}
+        <div className="flex items-center justify-between px-8 py-4">
+          <div className="flex items-center gap-1">
+            {slides.map((_, i) => (
+              <button key={i} onClick={() => setCurrent(i)}
+                className={`h-2 rounded-full transition-all ${i === current ? 'bg-blue-500 w-8' : 'bg-slate-700 hover:bg-slate-600 w-2'}`} />
+            ))}
+          </div>
+          <div className="flex items-center gap-4">
+            <span className="text-sm text-slate-500">{current + 1} / {slides.length}</span>
+            <button onClick={toggleFullscreen} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors" title="Exit fullscreen (F)">
+              <Minimize2 className="w-5 h-5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Slide — fills the screen */}
+        <div className="flex-1 overflow-y-auto px-16 py-6">
+          <div className="max-w-5xl mx-auto">
+            <Slide />
+          </div>
+        </div>
+
+        {/* Bottom nav — minimal */}
+        <div className="flex items-center justify-between px-8 py-4">
+          <button onClick={() => setCurrent(s => Math.max(s - 1, 0))} disabled={current === 0}
+            className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 disabled:opacity-20 text-sm transition-colors">
+            <ChevronLeft className="w-5 h-5" /> Previous
+          </button>
+          <span className="text-xs text-slate-600">Press F to exit · Arrow keys to navigate</span>
+          <button onClick={() => setCurrent(s => Math.min(s + 1, slides.length - 1))} disabled={current === slides.length - 1}
+            className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:text-slate-200 disabled:opacity-20 text-sm transition-colors">
+            Next <ChevronRight className="w-5 h-5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Normal mode
   return (
     <main className="max-w-5xl mx-auto px-6 py-6 min-h-screen flex flex-col">
       {/* Top nav */}
@@ -51,7 +112,13 @@ export function Slideshow({ slides, toolName, toolRoute, toolIcon: ToolIcon }: S
               title={slides[i].title} />
           ))}
         </div>
-        <div className="text-xs text-slate-500">{current + 1} / {slides.length}</div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-500">{current + 1} / {slides.length}</span>
+          <button onClick={toggleFullscreen} title="Present fullscreen (F)"
+            className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
+            <Maximize2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Slide content */}
