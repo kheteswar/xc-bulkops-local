@@ -393,6 +393,14 @@ export interface AnalysisResults {
   totalSecurityEvents: number;
   avgSampleRate: number;
   estimatedActualRequests: number;
+  /** Sum of total_hits from all access log API chunk responses (total records in F5 XC for the window) */
+  totalApiHits: number;
+  /** Sum of total_hits from all security event API chunk responses */
+  totalSecurityApiHits: number;
+  /** Average RPM derived from totalApiHits across the full time window */
+  globalAvgRpm: number;
+  /** Peak RPM from the single busiest chunk window */
+  globalPeakRpm: number;
 
   responseBreakdown: {
     origin2xx: number;

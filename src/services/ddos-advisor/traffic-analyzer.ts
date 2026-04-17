@@ -3,6 +3,7 @@ import type { AggregateRateStats, TrafficStats, TrafficProfile } from './types';
 import { classifyResponse, getResponseCategory } from '../rate-limit-advisor';
 import { buildUserReputationMap } from '../rate-limit-advisor';
 import type { ScanResult } from './traffic-scanner';
+import type { AggBucket } from '../log-analyzer/aggregation-client';
 
 // ═══════════════════════════════════════════════════════════════════
 // TRAFFIC PROFILE CLASSIFICATION
@@ -118,6 +119,52 @@ function classifyTrafficProfile(accessLogs: AccessLogEntry[]): TrafficProfile {
   };
 }
 
+/**
+ * Aggregation-based traffic profile — uses top-path and top-UA buckets
+ * from the full analysis window instead of iterating raw log records.
+ */
+function classifyTrafficProfileFromAgg(
+  pathBuckets: AggBucket[],
+  uaBuckets: AggBucket[],
+): TrafficProfile {
+  const topPaths = pathBuckets.slice(0, 15).map(b => ({
+    path: b.key,
+    count: b.count,
+    isApi: isApiPath(b.key),
+  }));
+
+  const totalPathHits = pathBuckets.reduce((sum, b) => sum + b.count, 0) || 1;
+  const apiPathHits = pathBuckets.filter(b => isApiPath(b.key)).reduce((sum, b) => sum + b.count, 0);
+  const pathApiPct = (apiPathHits / totalPathHits) * 100;
+
+  const uaBreakdown = { browser: 0, mobile: 0, bot: 0, api: 0, unknown: 0 };
+  for (const b of uaBuckets) {
+    uaBreakdown[classifyUserAgent(b.key)] += b.count;
+  }
+  const totalUaHits = uaBuckets.reduce((sum, b) => sum + b.count, 0) || 1;
+  const programmaticRequests = uaBreakdown.api + uaBreakdown.bot;
+  const browserRequests = uaBreakdown.browser + uaBreakdown.mobile;
+  const uaApiPct = (programmaticRequests / totalUaHits) * 100;
+
+  const apiPct = Math.round(pathApiPct * 0.6 + uaApiPct * 0.4);
+  const webPct = 100 - apiPct;
+
+  let type: TrafficProfile['type'];
+  if (apiPct >= 70) type = 'api';
+  else if (apiPct <= 30) type = 'web';
+  else type = 'mixed';
+
+  return {
+    type,
+    apiTrafficPct: apiPct,
+    webTrafficPct: webPct,
+    hasBrowserTraffic: browserRequests > 0,
+    hasProgrammaticTraffic: programmaticRequests > 0,
+    topPaths,
+    uaBreakdown,
+  };
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // HELPERS
 // ═══════════════════════════════════════════════════════════════════
@@ -173,33 +220,17 @@ function computeStats(values: number[]): AggregateRateStats {
  * response analysis, and source analysis.
  */
 export function analyzeFromScan(scanResult: ScanResult): TrafficStats {
-  const { hourlyVolumes, peakLogs, securityEventSample, totalRequestsEstimate, securityEventCount } = scanResult;
+  const { hourlyVolumes, peakLogs, securityEventSample, totalRequestsEstimate, securityEventCount, aggBuckets } = scanResult;
 
-  // ─── Per-second RPS from peak logs (most accurate for DDoS thresholds) ───
+  // ─── Per-second RPS from peak sample (for DDoS threshold stats) ───
   const secondBuckets = new Map<string, number>();
   const minuteBuckets = new Map<string, number>();
-  // Group second buckets by hour key for per-hour peak RPS
   const hourlySecondBuckets = new Map<string, Map<string, number>>();
   const durations: number[] = [];
-  const countryCounts = new Map<string, number>();
-  const asnCounts = new Map<string, number>();
-
-  const responseBreakdown = { origin2xx: 0, origin3xx: 0, origin4xx: 0, origin5xx: 0, f5Blocked: 0 };
   let sampleRateSum = 0;
   let sampleRateCount = 0;
 
   for (const log of peakLogs) {
-    // Response classification
-    const origin = classifyResponse(log);
-    const category = getResponseCategory(log, origin);
-    switch (category) {
-      case 'origin_2xx': responseBreakdown.origin2xx++; break;
-      case 'origin_3xx': responseBreakdown.origin3xx++; break;
-      case 'origin_4xx': responseBreakdown.origin4xx++; break;
-      case 'origin_5xx': responseBreakdown.origin5xx++; break;
-      case 'f5_blocked': responseBreakdown.f5Blocked++; break;
-    }
-
     const sr = typeof log.sample_rate === 'number' && log.sample_rate > 0 ? log.sample_rate : 1;
     sampleRateSum += sr;
     sampleRateCount++;
@@ -207,39 +238,56 @@ export function analyzeFromScan(scanResult: ScanResult): TrafficStats {
     const d = extractTimestamp(log as unknown as Record<string, unknown>);
     if (!d) continue;
 
-    const weight = typeof log.sample_rate === 'number' && log.sample_rate > 0 ? 1 / log.sample_rate : 1;
+    const weight = sr < 1 ? 1 / sr : 1;
 
-    // Per-second bucket
     const secKey = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}-${d.getUTCHours()}-${d.getUTCMinutes()}-${d.getUTCSeconds()}`;
     secondBuckets.set(secKey, (secondBuckets.get(secKey) || 0) + weight);
 
-    // Group per-second buckets by hour (using the hourly volume start timestamp)
     const hourKey = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}T${String(d.getUTCHours()).padStart(2, '0')}`;
-    if (!hourlySecondBuckets.has(hourKey)) {
-      hourlySecondBuckets.set(hourKey, new Map());
-    }
+    if (!hourlySecondBuckets.has(hourKey)) hourlySecondBuckets.set(hourKey, new Map());
     hourlySecondBuckets.get(hourKey)!.set(secKey, (hourlySecondBuckets.get(hourKey)!.get(secKey) || 0) + weight);
 
-    // Per-minute bucket
     const minKey = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}-${d.getUTCHours()}-${d.getUTCMinutes()}`;
     minuteBuckets.set(minKey, (minuteBuckets.get(minKey) || 0) + weight);
 
-    // Duration
     if (typeof log.total_duration_seconds === 'number' && log.total_duration_seconds > 0) {
       durations.push(log.total_duration_seconds * 1000);
-    }
-
-    // Source
-    if (log.country && typeof log.country === 'string') {
-      countryCounts.set(log.country, (countryCounts.get(log.country) || 0) + 1);
-    }
-    const asnVal = log.asn || log.as_number;
-    if (asnVal && typeof asnVal === 'string') {
-      asnCounts.set(asnVal, (asnCounts.get(asnVal) || 0) + 1);
     }
   }
 
   const avgSampleRate = sampleRateCount > 0 ? sampleRateSum / sampleRateCount : 1;
+
+  // ─── Response breakdown from aggregation buckets (full window) ───
+  const responseBreakdown = { origin2xx: 0, origin3xx: 0, origin4xx: 0, origin5xx: 0, f5Blocked: 0 };
+  if (aggBuckets?.rsp_code_class) {
+    for (const b of aggBuckets.rsp_code_class) {
+      if (b.key === '2xx') responseBreakdown.origin2xx += b.count;
+      else if (b.key === '3xx') responseBreakdown.origin3xx += b.count;
+      else if (b.key === '4xx') responseBreakdown.origin4xx += b.count;
+      else if (b.key === '5xx') responseBreakdown.origin5xx += b.count;
+    }
+  } else {
+    // Fallback: derive from small sample
+    for (const log of peakLogs) {
+      const origin = classifyResponse(log);
+      const category = getResponseCategory(log, origin);
+      switch (category) {
+        case 'origin_2xx': responseBreakdown.origin2xx++; break;
+        case 'origin_3xx': responseBreakdown.origin3xx++; break;
+        case 'origin_4xx': responseBreakdown.origin4xx++; break;
+        case 'origin_5xx': responseBreakdown.origin5xx++; break;
+        case 'f5_blocked': responseBreakdown.f5Blocked++; break;
+      }
+    }
+  }
+  if (aggBuckets?.waf_action) {
+    for (const b of aggBuckets.waf_action) {
+      const key = b.key.toLowerCase();
+      if (key === 'block' || key === 'js_challenge_failed' || key === 'captcha_challenge_failed') {
+        responseBreakdown.f5Blocked += b.count;
+      }
+    }
+  }
 
   // Per-second RPS distribution (from peak logs)
   const rpsValues = [...secondBuckets.values()].map(v => Math.ceil(v));
@@ -261,10 +309,11 @@ export function analyzeFromScan(scanResult: ScanResult): TrafficStats {
 
     let hourPeakRps: number;
     if (hourBuckets && hourBuckets.size > 0) {
-      // We have per-second data for this hour — compute actual peak
+      // We have per-second data for this hour — compute actual peak (already sample_rate weighted)
       hourPeakRps = Math.ceil(Math.max(...hourBuckets.values()));
     } else {
-      // No per-second data — use avgRps as best estimate
+      // No per-second data — use sample-rate-adjusted avgRps as best estimate
+      // vol.avgRps is already computed from estimatedActualHits in the scanner
       hourPeakRps = Math.round(vol.avgRps);
     }
 
@@ -288,15 +337,13 @@ export function analyzeFromScan(scanResult: ScanResult): TrafficStats {
   const p95DurationMs = computePercentile(durationsSorted, 95);
   const p99DurationMs = computePercentile(durationsSorted, 99);
 
-  // Top sources
-  const topCountries = [...countryCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([country, count]) => ({ country, count }));
-  const topAsns = [...asnCounts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 10)
-    .map(([asn, count]) => ({ asn, count }));
+  // ─── Top sources from aggregation buckets (full window) ───
+  const topCountries = aggBuckets?.country
+    ? aggBuckets.country.slice(0, 10).map(b => ({ country: b.key, count: b.count }))
+    : [];
+  const topAsns = aggBuckets?.as_org
+    ? aggBuckets.as_org.slice(0, 10).map(b => ({ asn: b.key, count: b.count }))
+    : [];
 
   // Security events analysis (from sample)
   let ddosEventCount = 0;
@@ -329,8 +376,10 @@ export function analyzeFromScan(scanResult: ScanResult): TrafficStats {
     }
   }
 
-  // Traffic profile (from peak logs)
-  const trafficProfile = classifyTrafficProfile(peakLogs);
+  // ─── Traffic profile — prefer agg buckets (full window), fall back to sample ───
+  const trafficProfile = (aggBuckets?.req_path?.length || aggBuckets?.user_agent?.length)
+    ? classifyTrafficProfileFromAgg(aggBuckets.req_path ?? [], aggBuckets.user_agent ?? [])
+    : classifyTrafficProfile(peakLogs);
   console.log(`[TrafficAnalyzer] Traffic profile: ${trafficProfile.type} (API: ${trafficProfile.apiTrafficPct}%, Web: ${trafficProfile.webTrafficPct}%)`);
 
   return {

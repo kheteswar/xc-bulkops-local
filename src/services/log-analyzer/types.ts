@@ -1,12 +1,15 @@
-import type { AccessLogEntry } from '../rate-limit-advisor/types';
+import type { AccessLogEntry, SecurityEventEntry } from '../rate-limit-advisor/types';
 
 // ═══════════════════════════════════════════════════════════════════
 // TIME & QUERY
 // ═══════════════════════════════════════════════════════════════════
 
-export type TimePeriod = '1h' | '6h' | '24h' | '7d' | '14d';
+export type TimePeriod = '5m' | '15m' | '1h' | '6h' | '24h' | '7d' | '14d';
+export type LogSource = 'access' | 'security' | 'both';
 
 export const TIME_PERIOD_HOURS: Record<TimePeriod, number> = {
+  '5m': 5 / 60,
+  '15m': 15 / 60,
   '1h': 1,
   '6h': 6,
   '24h': 24,
@@ -15,6 +18,8 @@ export const TIME_PERIOD_HOURS: Record<TimePeriod, number> = {
 };
 
 export const TIME_PERIOD_LABELS: Record<TimePeriod, string> = {
+  '5m': 'Last 5 Min',
+  '15m': 'Last 15 Min',
   '1h': 'Last 1 Hour',
   '6h': 'Last 6 Hours',
   '24h': 'Last 24 Hours',
@@ -38,7 +43,7 @@ export interface ClientFilter {
 // ═══════════════════════════════════════════════════════════════════
 
 export type FieldType = 'numeric' | 'string' | 'boolean' | 'timestamp';
-export type FieldGroup = 'timing' | 'request' | 'response' | 'routing' | 'security' | 'geo' | 'tls' | 'meta';
+export type FieldGroup = 'timing' | 'request' | 'response' | 'routing' | 'security' | 'security_event' | 'geo' | 'tls' | 'meta';
 
 export interface FieldDefinition {
   key: string;
@@ -46,6 +51,8 @@ export interface FieldDefinition {
   type: FieldType;
   group: FieldGroup;
   parseAsNumber?: boolean;
+  /** Which log source this field belongs to: access, security, or both */
+  source?: 'access' | 'security' | 'both';
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -163,4 +170,57 @@ export interface StatusTimeSeriesPoint {
   other: number;
 }
 
-export type { AccessLogEntry };
+// ═══════════════════════════════════════════════════════════════════
+// FIELD BREAKDOWN (cross-tabulation)
+// ═══════════════════════════════════════════════════════════════════
+
+export interface BreakdownSubValue {
+  value: string;
+  count: number;
+}
+
+export interface BreakdownEntry {
+  primaryValue: string;
+  primaryCount: number;
+  breakdowns: Record<string, BreakdownSubValue[]>; // keyed by breakdown field
+}
+
+export interface BreakdownResult {
+  primaryField: string;
+  primaryLabel: string;
+  breakdownFields: Array<{ key: string; label: string }>;
+  entries: BreakdownEntry[];
+}
+
+export type { AccessLogEntry, SecurityEventEntry };
+
+// ═══════════════════════════════════════════════════════════════════
+// AGGREGATION-BASED DATA MODEL
+// ═══════════════════════════════════════════════════════════════════
+
+export type { AggBucket } from './aggregation-client';
+
+/**
+ * Result of collectWithAggregations() — replaces full raw log download.
+ * Contains server-side aggregated field distributions + a small raw sample.
+ */
+export interface AggregatedLogData {
+  /** Total matching records in the time window (from probe) */
+  totalHits: number;
+  /** F5 XC log sampling rate (actual requests = totalHits / sampleRate) */
+  sampleRate: number;
+  /** Estimated actual request count accounting for sampling */
+  estimatedRequests: number;
+  /** Access log field distributions keyed by field name */
+  accessAggs: Record<string, import('./aggregation-client').AggBucket[]>;
+  /** Security event field distributions keyed by field name */
+  securityAggs: Record<string, import('./aggregation-client').AggBucket[]>;
+  /** Small raw log sample (≤500 records) for table view + latency */
+  sampleLogs: AccessLogEntry[];
+  /** Small security event sample for WAF/threat detail */
+  sampleSecurityEvents: SecurityEventEntry[];
+  /** Hourly hit counts for the time series chart */
+  timeSeries: Array<{ timestamp: string; count: number; label: string }>;
+  /** Total security events (from probe) */
+  totalSecurityEvents: number;
+}

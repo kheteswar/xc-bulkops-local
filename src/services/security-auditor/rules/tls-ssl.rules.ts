@@ -34,10 +34,11 @@ export const SEC001_HttpRedirect: SecurityRule = {
     const spec = getSpec(obj);
 
     // Check various possible locations for http_redirect setting
+    // http_redirect is a boolean inside https/https_auto_cert objects
+    const httpsSpec = (spec?.https || spec?.https_auto_cert) as Record<string, unknown> | undefined;
     const httpRedirect =
-      spec?.http_redirect === true ||
-      (spec?.http as Record<string, unknown>)?.http_redirect === true ||
-      spec?.redirect_to_https === true;
+      httpsSpec?.http_redirect === true ||
+      spec?.redirect_to_https !== undefined;
 
     if (httpRedirect) {
       return {
@@ -82,10 +83,9 @@ export const SEC002_HSTSHeader: SecurityRule = {
   check: (obj: unknown, _context: AuditContext): CheckResult => {
     const spec = getSpec(obj);
 
-    const hstsEnabled =
-      spec?.add_hsts_header === true ||
-      (spec?.https as Record<string, unknown>)?.add_hsts_header === true ||
-      (spec?.https_auto_cert as Record<string, unknown>)?.add_hsts_header === true;
+    // add_hsts is a boolean inside https/https_auto_cert objects
+    const httpsSpec2 = (spec?.https || spec?.https_auto_cert) as Record<string, unknown> | undefined;
+    const hstsEnabled = httpsSpec2?.add_hsts === true;
 
     if (hstsEnabled) {
       return {

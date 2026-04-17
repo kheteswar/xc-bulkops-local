@@ -4,7 +4,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   Shield,
   ArrowLeft,
@@ -27,6 +27,7 @@ import {
   Clock,
   Database,
   Layers,
+  HelpCircle,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
@@ -324,6 +325,9 @@ export function SecurityAuditor() {
                 </p>
               </div>
             </div>
+            <Link to="/explainer/security-auditor" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+              <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+            </Link>
           </div>
 
           {report && step === 'results' && (

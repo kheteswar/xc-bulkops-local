@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   ShieldAlert, Play, ChevronDown, ChevronRight, AlertTriangle,
   Globe, Target, Lock, Check, XCircle,
   ArrowLeft, ArrowRight, Zap, Search, BarChart3,
-  Download, FileSpreadsheet,
+  Download, FileSpreadsheet, HelpCircle,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
@@ -1583,6 +1583,9 @@ export default function FPAnalyzer() {
             <h1 className="text-xl font-bold text-slate-100">FP Analyzer</h1>
             <p className="text-xs text-slate-400">Progressive False Positive Analysis</p>
           </div>
+          <Link to="/explainer/fp-analyzer" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+            <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+          </Link>
         </div>
         <button onClick={() => navigate('/')} className="text-xs text-slate-400 hover:text-slate-200">
           &larr; Back to Apps

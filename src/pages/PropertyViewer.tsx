@@ -9,7 +9,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Layers, Loader2, Check, Search, FileJson, Table, Play, X,
   ChevronDown, ChevronUp, ChevronRight, Globe, Server, Shield, Hash,
-  AlertTriangle, Copy, LayoutGrid, LayoutList, FileText,
+  AlertTriangle, Copy, LayoutGrid, LayoutList, FileText, HelpCircle,
 } from 'lucide-react';
 import { apiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
@@ -545,6 +545,9 @@ export function PropertyViewer() {
                 <p className="text-xs text-slate-500">Compare properties across all config objects</p>
               </div>
             </div>
+            <Link to="/explainer/property-viewer" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+              <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+            </Link>
           </div>
           <div className="flex items-center gap-2">
             {[1, 2, 3].map(s => (

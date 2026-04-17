@@ -3,7 +3,7 @@ import {
   ArrowLeft, Play, Download, Upload,
   CheckCircle, XCircle, Activity, ChevronRight, ChevronLeft,
   ShieldAlert, ShieldCheck, Layers, Code, Trash2, Plus, Globe, FileText, X, ClipboardList,
-  ExternalLink, AlertTriangle
+  ExternalLink, AlertTriangle, HelpCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useToast } from '../context/ToastContext';
@@ -822,6 +822,9 @@ export function HttpSanityChecker() {
             </h1>
             <p className="text-slate-400">Smart comparison between Live (Public DNS) and Spoof (Direct IP to Origin)</p>
           </div>
+          <Link to="/explainer/http-sanity" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+            <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+          </Link>
         </div>
 
         <div className="grid lg:grid-cols-3 gap-6">

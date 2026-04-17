@@ -205,6 +205,14 @@ class F5XCApiClient {
     return this.get(`/api/config/namespaces/${namespace}/cdn_loadbalancers`);
   }
 
+  async getCDNs(namespace: string): Promise<{ items: CDNLoadBalancer[] }> {
+    return this.getCDNLoadBalancers(namespace);
+  }
+
+  async getCDN(namespace: string, name: string): Promise<CDNLoadBalancer> {
+    return this.get(`/api/config/namespaces/${namespace}/cdn_loadbalancers/${name}`);
+  }
+
   async getCDNCacheRules(namespace: string): Promise<{ items: CDNCacheRule[] }> {
     return this.get(`/api/config/namespaces/${namespace}/cdn_cache_rules`);
   }

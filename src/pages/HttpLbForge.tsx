@@ -1,15 +1,17 @@
 import React, { useState, useRef } from 'react';
-import { 
-  Download, 
-  Upload, 
-  Play, 
-  CheckCircle, 
-  AlertTriangle, 
-  Loader2, 
+import { Link } from 'react-router-dom';
+import {
+  Download,
+  Upload,
+  Play,
+  CheckCircle,
+  AlertTriangle,
+  Loader2,
   Hammer,
   Info,
   Server,
-  Network
+  Network,
+  HelpCircle
 } from 'lucide-react';
 import { apiClient } from '../services/api';
 import { useToast } from '../context/ToastContext';
@@ -561,10 +563,15 @@ export function HttpLbForge() {
   return (
     <div className="max-w-7xl mx-auto px-6 py-8">
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-100 flex items-center gap-3">
-          <Hammer className="w-8 h-8 text-violet-400" />
-          HTTP LB Forge
-        </h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-3xl font-bold text-slate-100 flex items-center gap-3">
+            <Hammer className="w-8 h-8 text-violet-400" />
+            HTTP LB Forge
+          </h1>
+          <Link to="/explainer/http-lb-forge" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+            <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+          </Link>
+        </div>
         <p className="text-slate-400 mt-2">
           Bulk create HTTP/HTTPS Load Balancers with automated Origin Pool, WAF, and Route configuration.
         </p>

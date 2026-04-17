@@ -2,7 +2,9 @@ import type { AccessLogEntry } from '../rate-limit-advisor/types';
 import type {
   NumericFieldStats, StringFieldStats, TimeSeriesPoint, LogSummary, ClientFilter,
   ErrorAnalysis, PerformanceAnalysis, SecurityInsights, TopTalker, StatusTimeSeriesPoint,
+  BreakdownResult, BreakdownEntry, BreakdownSubValue, AggregatedLogData,
 } from './types';
+import type { AggBucket } from './aggregation-client';
 import { FIELD_DEFINITIONS } from './field-definitions';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -18,8 +20,38 @@ function percentile(sorted: number[], p: number): number {
   return sorted[lower] + (sorted[upper] - sorted[lower]) * (idx - lower);
 }
 
+/**
+ * Resolve a dot-notation field path on a log entry.
+ * E.g., 'bot_info.name' → log.bot_info.name
+ * Also checks for pre-flattened keys (from merge): log['bot_info.name']
+ */
+export function resolveField(log: Record<string, unknown>, key: string): unknown {
+  // First try direct (works for flattened keys like 'bot_info.name')
+  const direct = log[key];
+  if (direct !== undefined) return direct;
+
+  // Then try dot-path traversal for nested objects
+  if (key.includes('.')) {
+    const parts = key.split('.');
+    let current: unknown = log;
+    for (const part of parts) {
+      if (current === null || current === undefined || typeof current !== 'object') return undefined;
+      // If current is an array, take the first element
+      if (Array.isArray(current)) {
+        if (current.length === 0) return undefined;
+        current = (current[0] as Record<string, unknown>)[part];
+      } else {
+        current = (current as Record<string, unknown>)[part];
+      }
+    }
+    return current;
+  }
+
+  return undefined;
+}
+
 function extractNumeric(log: AccessLogEntry, key: string, parseAsNumber: boolean): number | null {
-  const raw = (log as Record<string, unknown>)[key];
+  const raw = resolveField(log as Record<string, unknown>, key);
   if (raw === undefined || raw === null || raw === '') return null;
   if (typeof raw === 'number') return isFinite(raw) ? raw : null;
   if (parseAsNumber || typeof raw === 'string') {
@@ -127,8 +159,8 @@ export function computeStringStats(
   let total = 0;
 
   for (const log of logs) {
-    const raw = (log as Record<string, unknown>)[fieldKey];
-    const val = raw === undefined || raw === null ? '(empty)' : String(raw);
+    const raw = resolveField(log as Record<string, unknown>, fieldKey);
+    const val = raw === undefined || raw === null || raw === '' ? '(empty)' : String(raw);
     counts.set(val, (counts.get(val) || 0) + 1);
     total++;
   }
@@ -164,7 +196,7 @@ export function computeBooleanStats(
   let falseCount = 0;
 
   for (const log of logs) {
-    const raw = (log as Record<string, unknown>)[fieldKey];
+    const raw = resolveField(log as Record<string, unknown>, fieldKey);
     if (raw === true || raw === 'true') trueCount++;
     else falseCount++;
   }
@@ -179,6 +211,70 @@ export function computeBooleanStats(
       { value: 'true', count: trueCount, percentage: total > 0 ? (trueCount / total) * 100 : 0 },
       { value: 'false', count: falseCount, percentage: total > 0 ? (falseCount / total) * 100 : 0 },
     ],
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// FIELD BREAKDOWN (cross-tabulation)
+// ═══════════════════════════════════════════════════════════════════
+
+function getFieldValue(log: AccessLogEntry, key: string): string {
+  const raw = resolveField(log as Record<string, unknown>, key);
+  return raw === undefined || raw === null || raw === '' ? '(empty)' : String(raw);
+}
+
+/**
+ * Cross-tabulate: for each unique value of primaryField, compute
+ * counts of each breakdownField's unique values.
+ */
+export function computeBreakdown(
+  logs: AccessLogEntry[],
+  primaryField: string,
+  breakdownFieldKeys: string[],
+  topN: number = 50,
+): BreakdownResult {
+  const primaryDef = FIELD_DEFINITIONS.find(f => f.key === primaryField);
+  const breakdownDefs = breakdownFieldKeys.map(k => {
+    const def = FIELD_DEFINITIONS.find(f => f.key === k);
+    return { key: k, label: def?.label ?? k };
+  });
+
+  // Group logs by primary field value
+  const grouped = new Map<string, AccessLogEntry[]>();
+  for (const log of logs) {
+    const pv = getFieldValue(log, primaryField);
+    const arr = grouped.get(pv);
+    if (arr) arr.push(log);
+    else grouped.set(pv, [log]);
+  }
+
+  // Sort primary values by count desc, take top N
+  const sortedPrimaries = [...grouped.entries()]
+    .sort((a, b) => b[1].length - a[1].length)
+    .slice(0, topN);
+
+  const entries: BreakdownEntry[] = sortedPrimaries.map(([pv, pLogs]) => {
+    const breakdowns: Record<string, BreakdownSubValue[]> = {};
+
+    for (const bField of breakdownFieldKeys) {
+      const counts = new Map<string, number>();
+      for (const log of pLogs) {
+        const bv = getFieldValue(log, bField);
+        counts.set(bv, (counts.get(bv) || 0) + 1);
+      }
+      breakdowns[bField] = [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .map(([value, count]) => ({ value, count }));
+    }
+
+    return { primaryValue: pv, primaryCount: pLogs.length, breakdowns };
+  });
+
+  return {
+    primaryField,
+    primaryLabel: primaryDef?.label ?? primaryField,
+    breakdownFields: breakdownDefs,
+    entries,
   };
 }
 
@@ -690,5 +786,213 @@ export function buildStatusTimeSeries(logs: AccessLogEntry[], rangeHours: number
       ? `${(d.getMonth() + 1).toString().padStart(2, '0')}/${d.getDate().toString().padStart(2, '0')} ${d.getHours().toString().padStart(2, '0')}:00`
       : `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
     return { timestamp: d.toISOString(), label, ...data };
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// AGGREGATION-BASED ANALYTICS
+// Functions that build analytics results from AggregatedLogData
+// instead of raw log arrays.
+// ═══════════════════════════════════════════════════════════════════
+
+/**
+ * Convert aggregation buckets to StringFieldStats.
+ * Used for field distribution panels in the Log Analyzer.
+ */
+export function buildStringStatsFromBuckets(
+  buckets: AggBucket[],
+  fieldKey: string,
+  totalHits: number,
+): StringFieldStats {
+  const def = FIELD_DEFINITIONS.find(f => f.key === fieldKey);
+  const label = def?.label ?? fieldKey;
+  const topValues = buckets.map(b => ({
+    value: b.key,
+    count: b.count,
+    percentage: totalHits > 0 ? (b.count / totalHits) * 100 : 0,
+  }));
+  return {
+    field: fieldKey,
+    label,
+    totalCount: totalHits,
+    uniqueCount: buckets.length,
+    topValues,
+  };
+}
+
+/**
+ * Build a LogSummary from aggregation data.
+ * uniqueIPs / uniquePaths / uniqueDomains come from bucket counts (distinct values seen in top-N).
+ */
+export function buildSummaryFromAggregations(data: AggregatedLogData): LogSummary {
+  const { totalHits, estimatedRequests, accessAggs, sampleLogs } = data;
+
+  // Estimate unique counts from bucket lengths (these are top-N, so actual uniques may be higher)
+  const uniqueIPs = accessAggs['src_ip']?.length ?? 0;
+  const uniquePaths = accessAggs['req_path']?.length ?? 0;
+  const uniqueDomains = accessAggs['domain']?.length ?? 0;
+
+  // Compute avg duration from raw sample (best proxy we have)
+  let avgDurationMs = 0;
+  if (sampleLogs.length > 0) {
+    const durations: number[] = [];
+    for (const l of sampleLogs) {
+      const d = typeof l.total_duration_seconds === 'number' ? l.total_duration_seconds
+        : parseFloat(String((l as Record<string, unknown>).total_duration_seconds ?? ''));
+      if (isFinite(d) && d > 0) durations.push(d * 1000);
+    }
+    if (durations.length > 0) avgDurationMs = durations.reduce((a, b) => a + b, 0) / durations.length;
+  }
+
+  // Error rate from rsp_code_class buckets
+  let errorCount = 0;
+  const codeBuckets = accessAggs['rsp_code_class'] ?? [];
+  for (const b of codeBuckets) {
+    if (b.key === '4xx' || b.key === '5xx') errorCount += b.count;
+  }
+  const errorRate = totalHits > 0 ? (errorCount / totalHits) * 100 : 0;
+
+  return {
+    totalLogs: estimatedRequests,
+    uniqueIPs,
+    uniquePaths,
+    uniqueDomains,
+    avgDurationMs,
+    errorRate,
+  };
+}
+
+/**
+ * Build ErrorAnalysis from aggregation data.
+ * byPath and bySource are omitted (need cross-field data not available from top-N aggs).
+ */
+export function buildErrorAnalysisFromAgg(data: AggregatedLogData): ErrorAnalysis {
+  const { accessAggs, totalHits } = data;
+  const codeClassBuckets = accessAggs['rsp_code_class'] ?? [];
+  const codeBuckets = accessAggs['rsp_code'] ?? [];
+  const detailBuckets = accessAggs['rsp_code_details'] ?? [];
+
+  const totalErrors = codeClassBuckets
+    .filter(b => b.key === '4xx' || b.key === '5xx')
+    .reduce((s, b) => s + b.count, 0);
+  const errorRate = totalHits > 0 ? (totalErrors / totalHits) * 100 : 0;
+
+  return {
+    totalErrors,
+    errorRate,
+    byCode: codeBuckets
+      .filter(b => { const c = parseInt(b.key, 10); return c >= 400 || c === 0; })
+      .map(b => ({ code: b.key, count: b.count, pct: totalErrors > 0 ? (b.count / totalErrors) * 100 : 0 })),
+    byCodeClass: codeClassBuckets.map(b => ({ cls: b.key, count: b.count, pct: totalHits > 0 ? (b.count / totalHits) * 100 : 0 })),
+    byPath: [],     // requires cross-field data
+    bySource: [],   // requires cross-field data
+    byDetail: detailBuckets.map(b => ({ detail: b.key, count: b.count, pct: totalErrors > 0 ? (b.count / totalErrors) * 100 : 0 })),
+    byResponseFlag: [],
+  };
+}
+
+/**
+ * Build SecurityInsights from aggregation data.
+ */
+export function buildSecurityInsightsFromAgg(data: AggregatedLogData): SecurityInsights {
+  const { accessAggs, totalHits } = data;
+
+  const wafBuckets = accessAggs['waf_action'] ?? [];
+  const botBuckets = accessAggs['bot_class'] ?? [];
+
+  const wafActions = wafBuckets.map(b => ({
+    action: b.key,
+    count: b.count,
+    pct: totalHits > 0 ? (b.count / totalHits) * 100 : 0,
+  }));
+
+  const botClasses = botBuckets.map(b => ({
+    cls: b.key,
+    count: b.count,
+    pct: totalHits > 0 ? (b.count / totalHits) * 100 : 0,
+  }));
+
+  // Top blocked IPs: src_ip buckets where we can correlate with waf block count from sample
+  const topBlockedIPs = (accessAggs['src_ip'] ?? []).slice(0, 20).map(b => ({
+    ip: b.key,
+    count: b.count,
+    country: '',    // not available without cross-field agg
+    wafAction: '',
+  }));
+
+  return {
+    wafActions,
+    botClasses,
+    topBlockedIPs,
+    policyHitResults: [],
+    suspiciousPaths: [],
+  };
+}
+
+/**
+ * Build TopTalker list from aggregation data.
+ * Limited: no per-IP error rate or bandwidth (not available from top-N aggs alone).
+ */
+export function buildTopTalkersFromAgg(data: AggregatedLogData, topN = 25): TopTalker[] {
+  const ipBuckets = (data.accessAggs['src_ip'] ?? []).slice(0, topN);
+  return ipBuckets.map(b => ({
+    ip: b.key,
+    requests: b.count,
+    errors: 0,
+    errorRate: 0,
+    bandwidth: 0,
+    country: '',
+    asOrg: '',
+    topPath: '',
+    botClass: '',
+    wafBlocked: 0,
+  }));
+}
+
+/**
+ * Build TimeSeriesPoint[] from the hourly bucket data returned by collectWithAggregations.
+ */
+export function buildTimeSeriesFromHourlyBuckets(
+  timeSeries: Array<{ timestamp: string; count: number; label: string }>,
+): TimeSeriesPoint[] {
+  return timeSeries.map(b => ({
+    timestamp: b.timestamp,
+    count: b.count,
+    label: b.label,
+  }));
+}
+
+/**
+ * Build StatusTimeSeriesPoint[] from aggregation data.
+ * Only the total count per bucket is available (no per-status breakdown unless we
+ * run per-code aggregations per time bucket — too expensive).
+ * Returns simplified time series with counts bucketed into 2xx/other.
+ */
+export function buildStatusTimeSeriesFromAgg(
+  data: AggregatedLogData,
+): StatusTimeSeriesPoint[] {
+  const { timeSeries, accessAggs } = data;
+  if (timeSeries.length === 0) return [];
+
+  // Compute overall error/success ratio from aggregations
+  const total = timeSeries.reduce((s, b) => s + b.count, 0) || 1;
+  const errorBuckets = (accessAggs['rsp_code_class'] ?? []).filter(b => b.key === '4xx' || b.key === '5xx');
+  const errorTotal = errorBuckets.reduce((s, b) => s + b.count, 0);
+  const errRatio = errorTotal / (data.totalHits || 1);
+  const s5ratio = ((accessAggs['rsp_code_class'] ?? []).find(b => b.key === '5xx')?.count ?? 0) / (data.totalHits || 1);
+  const s4ratio = ((accessAggs['rsp_code_class'] ?? []).find(b => b.key === '4xx')?.count ?? 0) / (data.totalHits || 1);
+  const s3ratio = ((accessAggs['rsp_code_class'] ?? []).find(b => b.key === '3xx')?.count ?? 0) / (data.totalHits || 1);
+
+  return timeSeries.map(b => {
+    const c = b.count;
+    return {
+      timestamp: b.timestamp,
+      label: b.label,
+      '5xx': Math.round(c * s5ratio),
+      '4xx': Math.round(c * s4ratio),
+      '3xx': Math.round(c * s3ratio),
+      '2xx': Math.max(0, c - Math.round(c * errRatio) - Math.round(c * s3ratio)),
+      other: 0,
+    };
   });
 }

@@ -21,7 +21,8 @@ import {
   AlertTriangle,
   Lock,
   Globe,
-  Settings
+  Settings,
+  HelpCircle
 } from 'lucide-react';
 import type { ServicePolicy } from '../types';
 
@@ -485,10 +486,15 @@ export function PrefixBuilder() {
       </div>
 
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-slate-100 flex items-center gap-3">
-          <Layers className="w-8 h-8 text-blue-400" />
-          Prefix Builder
-        </h1>
+        <div className="flex items-center gap-4">
+          <h1 className="text-3xl font-bold text-slate-100 flex items-center gap-3">
+            <Layers className="w-8 h-8 text-blue-400" />
+            Prefix Builder
+          </h1>
+          <Link to="/explainer/prefix-builder" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+            <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+          </Link>
+        </div>
         <p className="text-slate-400 mt-2">
           Create IP Prefix Sets and optionally create or update Service Policies.
         </p>

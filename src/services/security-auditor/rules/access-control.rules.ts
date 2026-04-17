@@ -35,10 +35,10 @@ export const SEC012_APIProtection: SecurityRule = {
 
     // Check for API definition/protection
     const apiDefinition = spec?.api_definition as Record<string, unknown>;
-    const disableApiDefinition = spec?.disable_api_definition === true;
+    const disableApiDefinition = spec?.disable_api_definition !== undefined;
     const apiProtectionRules = spec?.api_protection_rules as Record<string, unknown>;
-    const enableApiDiscovery = spec?.enable_api_discovery;
-    const disableApiDiscovery = spec?.disable_api_discovery === true;
+    const apiDiscoveryEnabled = spec?.enable_api_discovery !== undefined;
+    const disableApiDiscovery = spec?.disable_api_discovery !== undefined;
 
     if (disableApiDefinition && disableApiDiscovery) {
       return {
@@ -59,7 +59,7 @@ export const SEC012_APIProtection: SecurityRule = {
       features.push('API Protection Rules configured');
     }
 
-    if (enableApiDiscovery && !disableApiDiscovery) {
+    if (apiDiscoveryEnabled) {
       features.push('API Discovery enabled');
     }
 
@@ -111,7 +111,7 @@ export const SEC014_ClientSideDefense: SecurityRule = {
     const spec = getSpec(obj);
 
     const clientSideDefense = spec?.client_side_defense as Record<string, unknown>;
-    const disableCsd = spec?.disable_client_side_defense === true;
+    const disableCsd = spec?.disable_client_side_defense !== undefined;
 
     if (disableCsd) {
       return {
@@ -174,7 +174,7 @@ export const SEC015_IPReputation: SecurityRule = {
 
     const enableIpReputation = spec?.enable_ip_reputation;
     const ipReputation = spec?.ip_reputation;
-    const disableIpReputation = spec?.disable_ip_reputation === true;
+    const disableIpReputation = spec?.disable_ip_reputation !== undefined;
 
     if (disableIpReputation) {
       return {

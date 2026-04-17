@@ -21,14 +21,25 @@ const ALL_IP_THREAT_CATEGORIES = [
 export function generateRpsRecommendations(stats: TrafficStats): RpsRecommendation[] {
   const peakRps = stats.peakRps;
   const multiplier = 3;
-  const threshold = Math.max(Math.ceil(peakRps * multiplier), 100);
+  const MIN_THRESHOLD = 100;
+  const calculated = Math.ceil(peakRps * multiplier);
+  const threshold = Math.max(calculated, MIN_THRESHOLD);
+  const wasFloored = calculated < MIN_THRESHOLD;
+
+  const formulaStr = wasFloored
+    ? `Peak=${peakRps} × ${multiplier} = ${calculated} (raised to minimum ${MIN_THRESHOLD})`
+    : `Peak=${peakRps} × ${multiplier} = ${threshold}`;
+
+  const descStr = wasFloored
+    ? `Peak observed RPS was ${peakRps.toLocaleString()}. Calculated threshold (${calculated} RPS) is below the recommended minimum of ${MIN_THRESHOLD} RPS. A minimum of ${MIN_THRESHOLD} RPS is recommended to avoid false positives from normal traffic bursts.`
+    : `Peak observed RPS was ${peakRps.toLocaleString()}. Setting DDoS threshold at 3× peak (${threshold.toLocaleString()} RPS) provides headroom for legitimate traffic spikes while protecting against volumetric attacks.`;
 
   return [{
     algorithm: 'peak_3x',
-    label: 'Peak RPS × 3',
+    label: wasFloored ? `Minimum Threshold` : 'Peak RPS × 3',
     rpsThreshold: threshold,
-    description: `Peak observed RPS was ${peakRps.toLocaleString()}. Setting DDoS threshold at 3× peak (${threshold.toLocaleString()} RPS) provides headroom for legitimate traffic spikes while protecting against volumetric attacks.`,
-    formula: `Peak=${peakRps} × ${multiplier} = ${threshold}`,
+    description: descStr,
+    formula: formulaStr,
     isRecommended: true,
   }];
 }

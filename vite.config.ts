@@ -9,6 +9,74 @@ import zlib from 'node:zlib';
 import tls from 'node:tls';
 
 /**
+ * Handle load test proxy requests — forwards to target URL and measures response time
+ */
+async function handleLoadTestRequest(req: IncomingMessage, res: ServerResponse) {
+  let body = '';
+  for await (const chunk of req) body += chunk;
+
+  try {
+    const { url: targetUrl, method = 'GET', headers: customHeaders = {}, body: reqBody } = JSON.parse(body);
+    if (!targetUrl) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing url' }));
+      return;
+    }
+
+    const urlObj = new URL(targetUrl);
+    const isHttps = urlObj.protocol === 'https:';
+    const httpModule = isHttps ? https : http;
+    const startTime = Date.now();
+
+    const options: any = {
+      hostname: urlObj.hostname,
+      port: urlObj.port || (isHttps ? 443 : 80),
+      path: urlObj.pathname + urlObj.search,
+      method,
+      headers: { ...customHeaders, Host: urlObj.hostname },
+      timeout: 30000,
+    };
+    if (isHttps) options.rejectUnauthorized = false;
+
+    const proxyReq = httpModule.request(options, (proxyRes) => {
+      let bodySize = 0;
+      proxyRes.on('data', (chunk: Buffer) => { bodySize += chunk.length; });
+      proxyRes.on('end', () => {
+        const responseTimeMs = Date.now() - startTime;
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ statusCode: proxyRes.statusCode || 0, responseTimeMs, bodySize }));
+      });
+    });
+
+    proxyReq.on('error', (err: any) => {
+      if (!res.headersSent) {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ statusCode: 0, responseTimeMs: Date.now() - startTime, bodySize: 0, error: err.message }));
+      }
+    });
+
+    proxyReq.on('timeout', () => {
+      proxyReq.destroy();
+      if (!res.headersSent) {
+        res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ statusCode: 0, responseTimeMs: Date.now() - startTime, bodySize: 0, error: 'Request timeout (30s)' }));
+      }
+    });
+
+    if (reqBody && ['POST', 'PUT', 'PATCH'].includes(method.toUpperCase())) {
+      proxyReq.write(typeof reqBody === 'string' ? reqBody : JSON.stringify(reqBody));
+    }
+    proxyReq.end();
+
+  } catch (err: any) {
+    if (!res.headersSent) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+  }
+}
+
+/**
  * Make HTTPS request to F5 XC API (and External APIs)
  * Used by the generic /api/proxy endpoint
  */
@@ -39,6 +107,155 @@ function makeF5XCRequest(options: https.RequestOptions, postData?: string): Prom
     }
     req.end();
   });
+}
+
+/**
+ * Make HTTPS request that returns raw Buffer (for binary endpoints like ZIP downloads)
+ */
+function makeF5XCRequestRaw(options: https.RequestOptions, postData?: string): Promise<{
+  statusCode: number;
+  body: Buffer;
+}> {
+  return new Promise((resolve, reject) => {
+    const req = https.request(options, (res) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => { chunks.push(chunk); });
+      res.on('end', () => {
+        resolve({
+          statusCode: res.statusCode || 500,
+          body: Buffer.concat(chunks),
+        });
+      });
+    });
+    req.on('error', reject);
+    req.setTimeout(60000, () => {
+      req.destroy();
+      reject(new Error('Request timeout'));
+    });
+    if (postData) req.write(postData);
+    req.end();
+  });
+}
+
+/**
+ * Parse ZIP buffer — extract files (handles STORE and DEFLATE methods)
+ */
+function parseZipBuffer(buffer: Buffer): Array<{ filename: string; data: Buffer }> {
+  const files: Array<{ filename: string; data: Buffer }> = [];
+  let offset = 0;
+
+  while (offset + 30 <= buffer.length) {
+    const sig = buffer.readUInt32LE(offset);
+    if (sig !== 0x04034b50) break;  // Not a local file header
+
+    const compressionMethod = buffer.readUInt16LE(offset + 8);
+    const compressedSize = buffer.readUInt32LE(offset + 18);
+    const filenameLength = buffer.readUInt16LE(offset + 26);
+    const extraLength = buffer.readUInt16LE(offset + 28);
+
+    const filename = buffer.toString('utf8', offset + 30, offset + 30 + filenameLength);
+    const dataStart = offset + 30 + filenameLength + extraLength;
+    const compressedData = buffer.slice(dataStart, dataStart + compressedSize);
+
+    try {
+      let data: Buffer;
+      if (compressionMethod === 0) {
+        data = compressedData; // Stored
+      } else if (compressionMethod === 8) {
+        data = zlib.inflateRawSync(compressedData); // Deflate
+      } else {
+        offset = dataStart + compressedSize;
+        continue;
+      }
+      files.push({ filename, data });
+    } catch {
+      // Skip corrupt entries
+    }
+    offset = dataStart + compressedSize;
+  }
+
+  return files;
+}
+
+/**
+ * Handle swagger-parse requests: download ZIP, extract JSONs, return parsed specs
+ */
+async function handleSwaggerParse(req: IncomingMessage, res: ServerResponse) {
+  let body = '';
+  for await (const chunk of req) body += chunk;
+
+  try {
+    const { tenant, token, namespace, lbName } = JSON.parse(body);
+    if (!tenant || !token || !namespace || !lbName) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Missing required fields' }));
+      return;
+    }
+
+    const hostname = `${tenant}.console.ves.volterra.io`;
+    const path = `/api/ml/data/namespaces/${namespace}/virtual_hosts/ves-io-http-loadbalancer-${lbName}/api_endpoints/swagger_spec`;
+
+    console.log(`[SwaggerParse] Downloading spec for ${lbName} from ${hostname}${path}`);
+
+    const response = await makeF5XCRequestRaw({
+      hostname,
+      path,
+      method: 'GET',
+      headers: {
+        'Authorization': `APIToken ${token}`,
+        'Accept': '*/*',
+      },
+    });
+
+    if (response.statusCode !== 200) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        error: `API Discovery may not be enabled (HTTP ${response.statusCode})`,
+        specs: [],
+      }));
+      return;
+    }
+
+    // Parse the ZIP and extract JSON files
+    const files = parseZipBuffer(response.body);
+    const jsonFiles = files.filter((f) => f.filename.endsWith('.json'));
+    console.log(`[SwaggerParse] Found ${jsonFiles.length} JSON files in ZIP for ${lbName}`);
+
+    const specs: Array<{ filename: string; fqdn: string; endpoints: Array<{ path: string; method: string; contentType: string }> }> = [];
+
+    for (const file of jsonFiles) {
+      try {
+        const spec = JSON.parse(file.data.toString('utf8'));
+        const servers = spec.servers || [];
+        const fqdn = servers.map((s: any) => s.url || '').join(', ');
+        const paths = spec.paths || {};
+        const endpoints: Array<{ path: string; method: string; contentType: string }> = [];
+
+        for (const [pathKey, pathDetails] of Object.entries(paths)) {
+          for (const [method, methodDetails] of Object.entries(pathDetails as Record<string, any>)) {
+            if (!['get', 'post', 'put', 'delete', 'patch', 'options', 'head'].includes(method.toLowerCase())) continue;
+            let contentType = '-';
+            if (methodDetails.requestBody?.content) {
+              contentType = Object.keys(methodDetails.requestBody.content).join(', ');
+            }
+            endpoints.push({ path: pathKey, method: method.toUpperCase(), contentType });
+          }
+        }
+
+        specs.push({ filename: file.filename, fqdn, endpoints });
+      } catch {
+        // Skip unparseable JSON
+      }
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ specs }));
+
+  } catch (err: any) {
+    console.error('[SwaggerParse] Error:', err.message);
+    res.writeHead(500, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: err.message }));
+  }
 }
 
 /**
@@ -397,13 +614,31 @@ export default defineConfig({
         });
 
         // -------------------------------------------------------------
-        // 2. Generic F5 XC Proxy (General Route)
+        // 2. Swagger Parse Proxy (ZIP download + parse)
+        //    Downloads swagger spec ZIP, extracts JSONs, returns parsed specs
+        // -------------------------------------------------------------
+        server.middlewares.use('/api/proxy/swagger-parse', (req, res, next) => {
+          if (req.method === 'OPTIONS') {
+            res.writeHead(200, {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type',
+            });
+            res.end();
+            return;
+          }
+          if (req.method !== 'POST') return next();
+          handleSwaggerParse(req, res);
+        });
+
+        // -------------------------------------------------------------
+        // 3. Generic F5 XC Proxy (General Route)
         //    Handles standard API calls for other tools
         // -------------------------------------------------------------
         server.middlewares.use('/api/proxy', (req, res, next) => {
           // IMPORTANT: If the URL matches the specific route above, do NOT process it here.
           // Note: req.originalUrl includes the full path, req.url is relative to mount point
-          if (req.originalUrl && req.originalUrl.includes('/api/proxy/request')) {
+          if (req.originalUrl && (req.originalUrl.includes('/api/proxy/request') || req.originalUrl.includes('/api/proxy/swagger-parse'))) {
             return next();
           }
 
@@ -429,8 +664,27 @@ export default defineConfig({
           res.end(JSON.stringify({ status: 'ok', timestamp: new Date().toISOString() }));
         });
 
+        // -------------------------------------------------------------
+        // 4. Load Tester Proxy
+        // -------------------------------------------------------------
+        server.middlewares.use('/api/load-test', (req, res, next) => {
+          if (req.method === 'OPTIONS') {
+            res.writeHead(200, {
+              'Access-Control-Allow-Origin': '*',
+              'Access-Control-Allow-Methods': 'POST, OPTIONS',
+              'Access-Control-Allow-Headers': 'Content-Type',
+            });
+            res.end();
+            return;
+          }
+          if (req.method !== 'POST') return next();
+          handleLoadTestRequest(req, res);
+        });
+
         console.log('\n 🔌 F5 XC API Proxy enabled at /api/proxy');
-        console.log(' 🔌 Sanity Checker Proxy enabled at /api/proxy/request\n');
+        console.log(' 🔌 Sanity Checker Proxy enabled at /api/proxy/request');
+        console.log(' 🔌 Swagger Parse Proxy enabled at /api/proxy/swagger-parse');
+        console.log(' 🔌 Load Tester Proxy enabled at /api/load-test\n');
       },
     },
   ],

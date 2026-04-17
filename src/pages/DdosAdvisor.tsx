@@ -9,7 +9,7 @@ import {
   ArrowLeft, Shield, Loader2, Play, Search,
   ChevronDown, ChevronUp, AlertTriangle, CheckCircle,
   XCircle, Download, Copy, Check, Zap,
-  Activity, Server,
+  Activity, Server, HelpCircle,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import html2canvas from 'html2canvas';
@@ -271,6 +271,8 @@ export function DdosAdvisor() {
   const [loadBalancers, setLoadBalancers] = useState<LoadBalancer[]>([]);
   const [selectedLbs, setSelectedLbs] = useState<Set<string>>(new Set());
   const [timePeriod, setTimePeriod] = useState<TimePeriod>('7d');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
 
   // Progress state
   const [progress, setProgress] = useState<DdosAnalysisProgress>({
@@ -340,8 +342,17 @@ export function DdosAdvisor() {
     setActiveResultIdx(0);
     setTotalLbCount(lbNames.length);
 
-    const endTime = new Date().toISOString();
-    const startTime = new Date(Date.now() - TIME_PERIOD_HOURS[timePeriod] * 60 * 60 * 1000).toISOString();
+    let endTime: string;
+    let startTime: string;
+    if (timePeriod === 'custom') {
+      if (!customStart || !customEnd) { toast.error('Select both start and end dates'); setIsRunning(false); return; }
+      startTime = new Date(customStart).toISOString();
+      endTime = new Date(customEnd).toISOString();
+      if (new Date(startTime) >= new Date(endTime)) { toast.error('Start date must be before end date'); setIsRunning(false); return; }
+    } else {
+      endTime = new Date().toISOString();
+      startTime = new Date(Date.now() - TIME_PERIOD_HOURS[timePeriod] * 60 * 60 * 1000).toISOString();
+    }
     const collected: DdosAnalysisResults[] = [];
     let hadError = false;
 
@@ -358,7 +369,7 @@ export function DdosAdvisor() {
         const domains = spec.domains || [];
         const currentConfig = assessCurrentConfig(spec);
 
-        // Phase 2-4: Lightweight traffic scan
+        // Phase 2-4: Traffic scan (hourly probes + aggregation + small sample)
         const scanResult = await scanTraffic(selectedNs, lbName, startTime, endTime, (p: ScanProgress) => {
           setProgress({
             phase: p.phase === 'scanning' ? 'fetching_logs' : p.phase === 'fetching_peaks' ? 'fetching_logs' : p.phase === 'fetching_security' ? 'fetching_security' : 'analyzing',
@@ -393,7 +404,7 @@ export function DdosAdvisor() {
 
         // Update results progressively so user can see completed LBs
         setAllResults([...collected]);
-        toast.success(`${lbName}: ${findings.length} findings (${scanResult.totalRequestsEstimate.toLocaleString()} requests)`);
+        toast.success(`${lbName}: ${findings.length} findings (~${scanResult.totalRequestsEstimate.toLocaleString()} est. requests)`);
 
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
@@ -414,7 +425,7 @@ export function DdosAdvisor() {
     }
 
     setIsRunning(false);
-  }, [selectedNs, selectedLbs, timePeriod, toast]);
+  }, [selectedNs, selectedLbs, timePeriod, customStart, customEnd, toast]);
 
   // Active result (derived)
   const results = allResults.length > 0 ? allResults[activeResultIdx] || allResults[0] : null;
@@ -507,6 +518,9 @@ export function DdosAdvisor() {
             <h1 className="text-2xl font-bold text-slate-100">DDoS Settings Advisor</h1>
             <p className="text-sm text-slate-400">Analyze traffic and recommend L7 DDoS protection settings</p>
           </div>
+          <Link to="/explainer/ddos-advisor" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+            <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+          </Link>
         </div>
         {results && (
           <div className="flex items-center gap-2">
@@ -548,22 +562,46 @@ export function DdosAdvisor() {
             <div>
               <label className="block text-xs font-medium text-slate-400 mb-1">Time Period</label>
               <div className="flex gap-1">
-                {(['24h', '7d', '14d', '30d'] as TimePeriod[]).map(tp => (
+                {(['24h', '7d', '14d', '30d', 'custom'] as TimePeriod[]).map(tp => (
                   <button
                     key={tp}
                     onClick={() => setTimePeriod(tp)}
-                    className={`flex-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    className={`flex-1 px-2 py-2 rounded-lg text-sm font-medium transition-colors ${
                       timePeriod === tp
                         ? 'bg-blue-600 text-white'
                         : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
                     }`}
                   >
-                    {tp}
+                    {tp === 'custom' ? 'Custom' : tp}
                   </button>
                 ))}
               </div>
             </div>
           </div>
+
+          {/* Custom date range inputs */}
+          {timePeriod === 'custom' && (
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">From</label>
+                <input
+                  type="datetime-local"
+                  value={customStart}
+                  onChange={(e) => setCustomStart(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-200 [color-scheme:dark]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1">To</label>
+                <input
+                  type="datetime-local"
+                  value={customEnd}
+                  onChange={(e) => setCustomEnd(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-800 border border-slate-600 rounded-lg text-sm text-slate-200 [color-scheme:dark]"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Selected LB chips */}
           {selectedLbs.size > 0 && (
@@ -579,7 +617,7 @@ export function DdosAdvisor() {
 
           <button
             onClick={runAnalysis}
-            disabled={!selectedNs || selectedLbs.size === 0 || isRunning}
+            disabled={!selectedNs || selectedLbs.size === 0 || isRunning || (timePeriod === 'custom' && (!customStart || !customEnd))}
             className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white rounded-lg font-medium transition-colors"
           >
             {isRunning ? <Loader2 className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5" />}
@@ -656,7 +694,7 @@ export function DdosAdvisor() {
           {/* Summary Cards */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { label: 'Total Requests', value: results.trafficStats.totalRequests.toLocaleString(), icon: Activity },
+              { label: 'Est. Requests', value: `~${results.trafficStats.totalRequests.toLocaleString()}`, icon: Activity },
               { label: 'Peak RPS', value: results.trafficStats.peakRps.toLocaleString(), icon: Zap },
               { label: 'Traffic Type', value: results.trafficStats.trafficProfile.type.toUpperCase(), icon: Server },
               { label: 'Findings', value: String(results.findings.length), icon: AlertTriangle },

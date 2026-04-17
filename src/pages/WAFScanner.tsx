@@ -15,6 +15,7 @@ import {
   Server,
   Route,
   X,
+  HelpCircle,
 } from 'lucide-react';
 import { apiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
@@ -398,6 +399,9 @@ export function WAFScanner() {
                 <p className="text-xs text-slate-500">Audit WAF configurations across your environment</p>
               </div>
             </div>
+            <Link to="/explainer/waf-scanner" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+              <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+            </Link>
           </div>
 
           <div className="flex items-center gap-2">

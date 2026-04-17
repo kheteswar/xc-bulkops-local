@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Database, FileJson, FileText, ChevronRight, ChevronDown,
   Search, Loader2, AlertCircle, Check, FolderTree, ArrowLeft, RefreshCw,
-  Package, Copy, XCircle, FileSpreadsheet, Filter, Tag, X,
+  Package, Copy, XCircle, FileSpreadsheet, Filter, Tag, X, HelpCircle,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
@@ -465,6 +466,9 @@ export function ConfigDump() {
             <h1 className="text-2xl font-bold text-slate-100">Config Dump</h1>
             <p className="text-sm text-slate-400">Export full configuration with all child objects</p>
           </div>
+          <Link to="/explainer/config-dump" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+            <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+          </Link>
         </div>
 
         {/* Search */}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -27,6 +27,7 @@ import {
   Zap,
   RefreshCw,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   Settings,
   Database,
@@ -41,6 +42,7 @@ import {
   Route,
   Cloud,
   HardDrive,
+  HelpCircle,
 } from 'lucide-react';
 import { apiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
@@ -93,11 +95,17 @@ export function ConfigVisualizer() {
   const [namespaces, setNamespaces] = useState<Namespace[]>([]);
   const [resourceList, setResourceList] = useState<Array<{ name: string }>>([]);
   const [selectedNs, setSelectedNs] = useState('');
-  const [selectedResource, setSelectedResource] = useState(''); 
+  const [selectedResource, setSelectedResource] = useState('');
+  const [selectedResources, setSelectedResources] = useState<Set<string>>(new Set());
   const [isLoadingNs, setIsLoadingNs] = useState(true);
   const [isLoadingResources, setIsLoadingResources] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [scanLog, setScanLog] = useState('');
+  const [allStates, setAllStates] = useState<ViewerState[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [lbDropOpen, setLbDropOpen] = useState(false);
+  const [lbFilter, setLbFilter] = useState('');
+  const lbDropRef = useRef<HTMLDivElement>(null);
   // CHANGE: Added 'advanced', 'features', 'domains' to the default set
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set([
     'routes', 
@@ -140,6 +148,15 @@ export function ConfigVisualizer() {
     loadNamespaces();
   }, [isConnected, navigate]);
 
+  // Close LB multi-select on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (lbDropRef.current && !lbDropRef.current.contains(e.target as Node)) setLbDropOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   const loadNamespaces = async () => {
     setIsLoadingNs(true);
     try {
@@ -155,6 +172,7 @@ export function ConfigVisualizer() {
   const loadResources = async (ns: string, type: 'http' | 'cdn') => {
     setSelectedNs(ns);
     setSelectedResource(''); // Reset selection
+    setSelectedResources(new Set());
     setResourceList([]);
     
     if (!ns) return;
@@ -282,59 +300,70 @@ export function ConfigVisualizer() {
   };
 
   const startViewer = async () => {
-    if (!selectedNs || !selectedResource) return;
+    // Support both multi-select and single select
+    const resources = selectedResources.size > 0
+      ? Array.from(selectedResources)
+      : selectedResource ? [selectedResource] : [];
+    if (!selectedNs || resources.length === 0) return;
     setIsLoading(true);
+    setAllStates([]);
+    setCurrentIndex(0);
 
     setExpandedSections(new Set(['routes', 'origins', 'security', 'tls', 'caching', 'apptype', 'advanced', 'features', 'domains']));
-    
-    // CRITICAL: Initialize the new state object with the certificates map
-    const newState: ViewerState = {
-      rootLB: null,
-      rootCDN: null,
-      namespace: selectedNs,
-      routes: [],
-      originPools: new Map(),
-      wafPolicies: new Map(),
-      healthChecks: new Map(),
-      servicePolicies: new Map(),
-      virtualSites: new Map(),
-      objects: new Map(),
-      cacheRules: new Map(),
-      appType: null,
-      appSetting: null,
-      appTypeSetting: null,
-      userIdentificationPolicy: null,
-      certificates: new Map(), // <--- Ensure this is initialized here
-    };
 
-    console.log('startViewer - start');
-    console.log('selectedType:'+selectedType);
+    const fetchedStates: ViewerState[] = [];
 
     try {
-      if (selectedType === 'http') {
-        log(`Fetching HTTP LB: ${selectedResource}`);
-        const lb = await apiClient.getLoadBalancer(selectedNs, selectedResource);
-        if (!lb) throw new Error('Load Balancer not found');
-        newState.rootLB = lb;
+      for (let i = 0; i < resources.length; i++) {
+        const resourceName = resources[i];
+        log(`Fetching ${i + 1}/${resources.length}: ${resourceName}`);
 
-        if (lb.spec?.routes) {
-            lb.spec.routes.forEach((r, i) => newState.routes.push(parseRoute(r, i)));
+        const newState: ViewerState = {
+          rootLB: null,
+          rootCDN: null,
+          namespace: selectedNs,
+          routes: [],
+          originPools: new Map(),
+          wafPolicies: new Map(),
+          healthChecks: new Map(),
+          servicePolicies: new Map(),
+          virtualSites: new Map(),
+          objects: new Map(),
+          cacheRules: new Map(),
+          appType: null,
+          appSetting: null,
+          appTypeSetting: null,
+          userIdentificationPolicy: null,
+          certificates: new Map(),
+        };
+
+        try {
+          if (selectedType === 'http') {
+            const lb = await apiClient.getLoadBalancer(selectedNs, resourceName);
+            if (!lb) continue;
+            newState.rootLB = lb;
+            if (lb.spec?.routes) {
+              lb.spec.routes.forEach((r, ri) => newState.routes.push(parseRoute(r, ri)));
+            }
+            await fetchDependencies(lb, newState, selectedNs);
+          } else {
+            const cdn = await apiClient.getCDN(selectedNs, resourceName);
+            if (!cdn) continue;
+            newState.rootCDN = cdn;
+            await fetchCDNDependencies(cdn, newState, selectedNs);
+          }
+          fetchedStates.push(newState);
+        } catch (e) {
+          console.warn(`Failed to load ${resourceName}:`, e);
         }
-        
-        console.log("Pass the 'newState' object so dependencies are added to it");
-        await fetchDependencies(lb, newState, selectedNs);
-
-      } else {
-        log(`Fetching CDN: ${selectedResource}`);
-        const cdn = await apiClient.getCDN(selectedNs, selectedResource);
-        if (!cdn) throw new Error('CDN not found');
-        newState.rootCDN = cdn;
-        await fetchCDNDependencies(cdn, newState, selectedNs);
       }
 
-      // Update the component state with the populated newState object
-      setState(newState);
-      log('Report generated.');
+      if (fetchedStates.length === 0) throw new Error('No resources could be loaded');
+
+      setAllStates(fetchedStates);
+      setCurrentIndex(0);
+      setState(fetchedStates[0]);
+      log(`Report generated for ${fetchedStates.length} resource(s).`);
 
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Failed to load');
@@ -342,6 +371,13 @@ export function ConfigVisualizer() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const goToLB = (index: number) => {
+    if (index < 0 || index >= allStates.length) return;
+    setCurrentIndex(index);
+    setState(allStates[index]);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   // --- HELPER FUNCTIONS ---
@@ -3461,12 +3497,17 @@ export function ConfigVisualizer() {
                       disabled={!!spec?.disable_api_discovery}
                     />
                     <FeatureStatusItem label="API Testing" enabled={!spec?.disable_api_testing} disabled={!!spec?.disable_api_testing} />
-                    <FeatureStatusItem label="API Definition" enabled={!spec?.disable_api_definition && !!spec?.api_definition} disabled={!!spec?.disable_api_definition} />
+                    <FeatureStatusItem label="API Definition" enabled={!spec?.disable_api_definition && !!(spec?.api_definition || spec?.api_specification?.api_definition)} disabled={!!spec?.disable_api_definition} />
                     <FeatureStatusItem label="IP Reputation" enabled={!spec?.disable_ip_reputation && !!spec?.enable_ip_reputation} disabled={!!spec?.disable_ip_reputation} />
+                    <FeatureStatusItem
+                      label="Malicious User Detection"
+                      enabled={!spec?.disable_malicious_user_detection && !!spec?.enable_malicious_user_detection}
+                      disabled={!!spec?.disable_malicious_user_detection}
+                    />
                     <FeatureStatusItem
                       label="Malicious User Mitigation"
                       enabled={!!appSettingSpec?.malicious_user_mitigation || !!spec?.malicious_user_mitigation}
-                      disabled={false}
+                      disabled={!appSettingSpec?.malicious_user_mitigation && !spec?.malicious_user_mitigation}
                       fromAppType={!!appSettingSpec?.malicious_user_mitigation}
                     />
                     <FeatureStatusItem
@@ -4108,6 +4149,9 @@ export function ConfigVisualizer() {
                 </p>
               </div>
             </div>
+            <Link to="/explainer/config-viewer" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+              <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+            </Link>
           </div>
 
           <div className="flex items-center gap-3">
@@ -4141,30 +4185,72 @@ export function ConfigVisualizer() {
               ))}
             </select>
 
-            {/* 3. Resource Selector (Updated) */}
-            <select
-              value={selectedResource} // Updated variable
-              onChange={e => setSelectedResource(e.target.value)} // Updated setter
-              disabled={!selectedNs || isLoadingResources}
-              className="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500 min-w-[200px] disabled:opacity-50"
-            >
-              <option value="">
-                {isLoadingResources ? 'Loading...' : `Select ${selectedType === 'http' ? 'Load Balancer' : 'Distribution'}`}
-              </option>
-              {resourceList.map(r => (
-                <option key={r.name} value={r.name}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
+            {/* 3. Multi-select Resource Picker */}
+            <div ref={lbDropRef} className="relative">
+              <button
+                onClick={() => !isLoadingResources && selectedNs && setLbDropOpen(!lbDropOpen)}
+                disabled={!selectedNs || isLoadingResources}
+                className="flex items-center justify-between gap-2 px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-sm text-slate-200 hover:border-slate-500 disabled:opacity-50 disabled:cursor-not-allowed min-w-[240px]"
+              >
+                <span className={selectedResources.size > 0 ? 'text-slate-200' : 'text-slate-500'}>
+                  {isLoadingResources ? 'Loading...' : selectedResources.size > 0 ? `${selectedResources.size} LB(s) selected` : `Select ${selectedType === 'http' ? 'Load Balancers' : 'Distributions'}`}
+                </span>
+                <ChevronDown className="w-4 h-4 text-slate-400" />
+              </button>
+              {lbDropOpen && (
+                <div className="absolute z-50 mt-1 w-80 bg-slate-800 border border-slate-600 rounded-lg shadow-xl max-h-72 overflow-hidden">
+                  <div className="p-2 border-b border-slate-700 space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
+                      <input
+                        value={lbFilter}
+                        onChange={(e) => setLbFilter(e.target.value)}
+                        className="w-full pl-7 pr-3 py-1.5 bg-slate-700 rounded text-sm text-slate-200 placeholder-slate-500 outline-none"
+                        placeholder="Filter..."
+                        autoFocus
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => setSelectedResources(new Set(resourceList.map(r => r.name)))} className="text-xs text-blue-400 hover:text-blue-300">Select All</button>
+                      <span className="text-slate-600">|</span>
+                      <button onClick={() => setSelectedResources(new Set())} className="text-xs text-slate-400 hover:text-slate-300">Clear</button>
+                    </div>
+                  </div>
+                  <div className="max-h-52 overflow-y-auto">
+                    {resourceList.filter(r => r.name.toLowerCase().includes(lbFilter.toLowerCase())).map(r => {
+                      const checked = selectedResources.has(r.name);
+                      return (
+                        <button
+                          key={r.name}
+                          onClick={() => {
+                            setSelectedResources(prev => {
+                              const next = new Set(prev);
+                              if (next.has(r.name)) next.delete(r.name); else next.add(r.name);
+                              return next;
+                            });
+                          }}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-slate-700 ${checked ? 'bg-slate-700/50' : ''} text-slate-300`}
+                        >
+                          <span className={`w-4 h-4 rounded border flex items-center justify-center text-xs shrink-0 ${checked ? 'bg-blue-600 border-blue-500 text-white' : 'border-slate-500'}`}>
+                            {checked && '✓'}
+                          </span>
+                          <span className="truncate">{r.name}</span>
+                        </button>
+                      );
+                    })}
+                    {resourceList.filter(r => r.name.toLowerCase().includes(lbFilter.toLowerCase())).length === 0 && <div className="px-3 py-4 text-sm text-slate-500 text-center">No results</div>}
+                  </div>
+                </div>
+              )}
+            </div>
 
             <button
               onClick={startViewer}
-              disabled={!selectedNs || !selectedResource || isLoading} // Updated check
+              disabled={!selectedNs || (selectedResources.size === 0 && !selectedResource) || isLoading}
               className={`flex items-center gap-2 px-5 py-2 font-semibold rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-white ${selectedType === 'http' ? 'bg-blue-500 hover:bg-blue-600' : 'bg-purple-500 hover:bg-purple-600'}`}
             >
               {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
-              View
+              View{selectedResources.size > 1 ? ` (${selectedResources.size})` : ''}
             </button>
           </div>
           
@@ -4192,10 +4278,69 @@ export function ConfigVisualizer() {
           </div>
         )}
 
+        {/* Navigation bar (top) - shown when multiple LBs loaded */}
+        {!isLoading && allStates.length > 1 && (state.rootLB || state.rootCDN) && (
+          <div className="flex items-center justify-between bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-3 mb-6 sticky top-2 z-40 backdrop-blur-sm">
+            <button
+              onClick={() => goToLB(currentIndex - 1)}
+              disabled={currentIndex === 0}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" /> Previous
+            </button>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-slate-400">{currentIndex + 1} / {allStates.length}</span>
+              <select
+                value={currentIndex}
+                onChange={e => goToLB(Number(e.target.value))}
+                className="px-3 py-1.5 bg-slate-700 border border-slate-600 rounded-lg text-sm text-slate-200 focus:outline-none focus:border-blue-500"
+              >
+                {allStates.map((s, i) => {
+                  const name = (s.rootLB as any)?.metadata?.name || (s.rootLB as any)?.name || (s.rootCDN as any)?.metadata?.name || `#${i + 1}`;
+                  return <option key={i} value={i}>{name}</option>;
+                })}
+              </select>
+            </div>
+            <button
+              onClick={() => goToLB(currentIndex + 1)}
+              disabled={currentIndex === allStates.length - 1}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              Next <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {!isLoading && state.rootLB && renderHTTPLBContent()}
 
         {!isLoading && state.rootCDN && renderCDNContent()}
-        
+
+        {/* Navigation bar (bottom) - shown when multiple LBs loaded */}
+        {!isLoading && allStates.length > 1 && (state.rootLB || state.rootCDN) && (
+          <div className="flex items-center justify-between bg-slate-800/80 border border-slate-700 rounded-xl px-4 py-3 mt-6">
+            <button
+              onClick={() => goToLB(currentIndex - 1)}
+              disabled={currentIndex === 0}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" /> Previous
+            </button>
+            <span className="text-sm text-slate-400">
+              {currentIndex + 1} / {allStates.length} — {(() => {
+                const s = allStates[currentIndex];
+                return (s?.rootLB as any)?.metadata?.name || (s?.rootLB as any)?.name || (s?.rootCDN as any)?.metadata?.name || '';
+              })()}
+            </span>
+            <button
+              onClick={() => goToLB(currentIndex + 1)}
+              disabled={currentIndex === allStates.length - 1}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              Next <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
       </main>
 
       {jsonModal && (

@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import {
   GitBranch, Search, Loader2, AlertCircle, ArrowLeft,
   Package, ChevronRight, ChevronDown, XCircle, Filter,
-  Table2, Network, TreePine, Grid3X3, Download,
+  Table2, Network, TreePine, Grid3X3, Download, HelpCircle,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useToast } from '../context/ToastContext';
@@ -699,6 +700,9 @@ export function ConfigExplorer() {
             <h1 className="text-2xl font-bold text-slate-100">Dependency Map</h1>
             <p className="text-sm text-slate-400">Explore relationships between config objects with interactive visualizations</p>
           </div>
+          <Link to="/explainer/dependency-map" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+            <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+          </Link>
         </div>
 
         {/* Search */}

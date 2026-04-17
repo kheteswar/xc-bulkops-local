@@ -1,11 +1,13 @@
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { ExternalLink, Clock, ChevronDown, LogOut } from 'lucide-react';
+import { ExternalLink, Clock, ChevronDown, LogOut, Moon, Sun, Sunrise } from 'lucide-react';
 import { useApp } from '../context/AppContext';
+import { useTheme } from '../context/ThemeContext';
 
 export function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const { isConnected, tenant, disconnect } = useApp();
+  const { theme, cycleTheme } = useTheme();
 
   const handleDisconnect = () => {
     disconnect();
@@ -33,6 +35,9 @@ export function Header() {
     { to: '/config-explorer', label: 'Dependency Map' },
     { to: '/ddos-advisor', label: 'DDoS Advisor' },
     { to: '/log-analyzer', label: 'Log Analyzer' },
+    { to: '/load-tester', label: 'Load Tester' },
+    { to: '/soc-lobby', label: 'SOC Room' },
+    { to: '/api-shield', label: 'API Shield Advisor' },
   ];
 
   return (
@@ -120,6 +125,14 @@ export function Header() {
             API Docs
             <ExternalLink className="w-3 h-3 opacity-50" />
           </a>
+
+          <button
+            onClick={cycleTheme}
+            className="p-2 text-slate-400 hover:text-slate-100 hover:bg-slate-800 rounded-md transition-colors"
+            title={`Theme: ${theme}`}
+          >
+            {theme === 'dark' ? <Moon className="w-4 h-4" /> : theme === 'light' ? <Sun className="w-4 h-4" /> : <Sunrise className="w-4 h-4" />}
+          </button>
         </nav>
       </div>
     </header>

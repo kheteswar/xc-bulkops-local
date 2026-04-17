@@ -510,19 +510,32 @@ async function fetchChunkSecurityEvents(
  * Starts with 3 concurrent streams, ramps up to 10 on success,
  * backs down on 429s. Failed chunks are re-queued to prevent data loss.
  */
+export interface AccessLogCollection {
+  logs: AccessLogEntry[];
+  /** Sum of total_hits from every chunk response — the total sampled log records available in F5 XC */
+  totalApiHits: number;
+  /** total_hits from the single busiest chunk — used to derive peak RPM */
+  peakChunkHits: number;
+  /** Chunk duration hours (for RPM derivation) */
+  chunkHours: number;
+  /** Sample rate extracted from first log entry that had the field */
+  detectedSampleRate: number | null;
+}
+
 export async function collectAccessLogs(
   namespace: string,
   lbName: string,
   startTime: string,
   endTime: string,
   onProgress: (p: CollectionProgress) => void
-): Promise<AccessLogEntry[]> {
+): Promise<AccessLogCollection> {
   const query = `{vh_name="ves-io-http-loadbalancer-${lbName}"}`;
   const chunks = splitIntoChunks(startTime, endTime, CHUNK_HOURS);
   const controller = new AdaptiveConcurrencyController(ACCESS_LOG_ADAPTIVE);
 
   let collected = 0;
   let grandTotal = 0;
+  let peakChunkHits = 0;
   let completedChunks = 0;
 
   onProgress({
@@ -562,6 +575,7 @@ export async function collectAccessLogs(
       },
       (totalHits) => {
         grandTotal += totalHits;
+        peakChunkHits = Math.max(peakChunkHits, totalHits);
         updateProgress();
       }
     ).then((logs) => {
@@ -599,7 +613,20 @@ export async function collectAccessLogs(
     );
   }
 
-  console.log(`[LogCollector] Access logs done: fetched=${allLogs.length}, API total_hits sum=${grandTotal}`);
+  // Extract sample rate from first log entry that has a valid value (<1 means actual sampling)
+  let detectedSampleRate: number | null = null;
+  for (const log of allLogs) {
+    const sr = (log as Record<string, unknown>).sample_rate;
+    if (typeof sr === 'number' && sr > 0 && sr < 1) {
+      detectedSampleRate = sr;
+      break;
+    }
+  }
+
+  console.log(
+    `[LogCollector] Access logs done: fetched=${allLogs.length}, ` +
+    `API total_hits sum=${grandTotal}, peakChunk=${peakChunkHits}, detectedSampleRate=${detectedSampleRate}`
+  );
 
   onProgress({
     phase: 'fetching_logs',
@@ -611,7 +638,13 @@ export async function collectAccessLogs(
     estimatedTotal: allLogs.length,
   });
 
-  return allLogs;
+  return { logs: allLogs, totalApiHits: grandTotal, peakChunkHits, chunkHours: CHUNK_HOURS, detectedSampleRate };
+}
+
+export interface SecurityEventCollection {
+  events: SecurityEventEntry[];
+  /** Sum of total_hits from every security event chunk response */
+  totalApiHits: number;
 }
 
 /**
@@ -626,7 +659,7 @@ export async function collectSecurityEvents(
   endTime: string,
   onProgress: (p: CollectionProgress) => void,
   accessLogsCount: number
-): Promise<SecurityEventEntry[]> {
+): Promise<SecurityEventCollection> {
   const query = `{vh_name="ves-io-http-loadbalancer-${lbName}"}`;
 
   console.log(`[LogCollector] Security events query: ${query}`);
@@ -725,5 +758,5 @@ export async function collectSecurityEvents(
     estimatedTotal: allEvents.length,
   });
 
-  return allEvents;
+  return { events: allEvents, totalApiHits: grandTotal };
 }

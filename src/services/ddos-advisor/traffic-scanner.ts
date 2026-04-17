@@ -26,6 +26,8 @@ import type {
   SecurityEventEntry,
   SecurityEventResponse,
 } from '../rate-limit-advisor/types';
+import { fetchBatchAggregation } from '../log-analyzer/aggregation-client';
+import type { AggBucket, FieldSpec } from '../log-analyzer/aggregation-client';
 
 // ═══════════════════════════════════════════════════════════════════
 // CONFIGURATION
@@ -33,10 +35,8 @@ import type {
 
 /** Probe resolution — 1 hour per probe */
 const PROBE_CHUNK_HOURS = 1;
-/** How many peak hours to download in detail */
+/** How many peak hours to identify (for display / reference) */
 const PEAK_HOURS_TO_FETCH = 3;
-/** Records per scroll page when fetching peak logs */
-const PAGE_SIZE = 500;
 /** Max retries per API call */
 const MAX_RETRIES = 4;
 /** Base delay for exponential backoff (ms) */
@@ -54,17 +54,19 @@ const PROBE_CONCURRENCY: Partial<AdaptiveConcurrencyConfig> = {
   redCooldownMs: 15000,
 };
 
-/** Adaptive concurrency for peak log fetching */
-const FETCH_CONCURRENCY: Partial<AdaptiveConcurrencyConfig> = {
-  initialConcurrency: 2,
-  minConcurrency: 1,
-  maxConcurrency: 4,
-  rampUpAfterSuccesses: 6,
-  rampDownFactor: 0.5,
-  yellowDelayMs: 1000,
-  redDelayMs: 4000,
-  redCooldownMs: 12000,
-};
+/** Fields to aggregate over the full analysis window (replaces full log scroll) */
+const AGG_FIELDS: FieldSpec[] = [
+  { field: 'country', topk: 50 },
+  { field: 'as_org', topk: 30 },
+  { field: 'rsp_code_class', topk: 10 },
+  { field: 'waf_action', topk: 10 },
+  { field: 'req_path', topk: 25 },
+  { field: 'user_agent', topk: 30 },
+  { field: 'method', topk: 10 },
+];
+
+/** Max raw log records to fetch from the busiest hour (for per-second RPS timing only) */
+const PEAK_SAMPLE_SIZE = 500;
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -74,6 +76,8 @@ export interface HourlyVolume {
   start: string;
   end: string;
   totalHits: number;
+  sampleRate: number;
+  estimatedActualHits: number;
   avgRps: number;
   label: string;
 }
@@ -87,10 +91,13 @@ export interface ScanProgress {
 export interface ScanResult {
   hourlyVolumes: HourlyVolume[];
   peakHours: HourlyVolume[];
+  /** Small raw sample (≤500) from busiest hour — for per-second RPS timing only */
   peakLogs: AccessLogEntry[];
   totalRequestsEstimate: number;
   securityEventCount: number;
   securityEventSample: SecurityEventEntry[];
+  /** Server-side aggregation results over the full analysis window */
+  aggBuckets: Record<string, AggBucket[]>;
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -278,8 +285,26 @@ async function scanHourlyVolumes(
     // Fallback: if total_hits is 0 but logs array has entries, count them
     if (totalHits <= 0 && response.logs?.length) totalHits = response.logs.length;
 
+    // Extract sample_rate from the returned log entry to estimate actual traffic
+    // F5 XC uses log sampling — total_hits counts sampled entries, not actual requests.
+    // Actual requests ≈ total_hits / sample_rate
+    let sampleRate = 1;
+    if (response.logs?.length > 0) {
+      let entry: any = response.logs[0];
+      if (typeof entry === 'string') {
+        try { entry = JSON.parse(entry); } catch { /* ignore */ }
+      }
+      const sr = entry?.sample_rate;
+      if (typeof sr === 'number' && sr > 0 && sr <= 1) {
+        sampleRate = sr;
+      }
+    }
+
+    const estimatedActualHits = sampleRate < 1 ? Math.round(totalHits / sampleRate) : totalHits;
+
     const chunkDurationSec = (new Date(chunk.end).getTime() - new Date(chunk.start).getTime()) / 1000;
-    const avgRps = chunkDurationSec > 0 ? totalHits / chunkDurationSec : 0;
+    // Use estimated actual hits for avgRps to reflect true traffic volume
+    const avgRps = chunkDurationSec > 0 ? estimatedActualHits / chunkDurationSec : 0;
 
     completed++;
     onProbe(completed, chunks.length);
@@ -288,6 +313,8 @@ async function scanHourlyVolumes(
       start: chunk.start,
       end: chunk.end,
       totalHits,
+      sampleRate,
+      estimatedActualHits,
       avgRps: Math.round(avgRps * 100) / 100,
       label: chunk.label,
     };
@@ -320,64 +347,45 @@ function identifyPeakHours(volumes: HourlyVolume[], count: number): HourlyVolume
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// PHASE 3: TARGETED LOG FETCH (PEAK HOURS ONLY)
+// PHASE 3: AGGREGATION + SMALL SAMPLE (replaces full peak-log scroll)
 // ═══════════════════════════════════════════════════════════════════
 
-async function fetchPeakLogs(
+/**
+ * Runs in parallel:
+ *  a) Batch aggregation over the FULL analysis window — country, ASN, response codes,
+ *     top paths, user agents. Eliminates the need to download thousands of raw records.
+ *  b) Small raw sample (≤500) from the single busiest hour — kept only for
+ *     per-second RPS timestamp distribution (aggregateRps/aggregateRpm stats).
+ */
+async function fetchAggAndSample(
   namespace: string,
   query: string,
-  peakHours: HourlyVolume[],
-  onProgress: (logs: number) => void
-): Promise<AccessLogEntry[]> {
-  const controller = new AdaptiveConcurrencyController(FETCH_CONCURRENCY);
-  let totalLogs = 0;
+  startTime: string,
+  endTime: string,
+  busiestHour: HourlyVolume | undefined,
+  onProgress: (count: number) => void
+): Promise<{ aggBuckets: Record<string, AggBucket[]>; peakLogs: AccessLogEntry[] }> {
+  const [aggResult, sampleResult] = await Promise.allSettled([
+    fetchBatchAggregation(namespace, 'access_logs', query, startTime, endTime, AGG_FIELDS),
+    busiestHour
+      ? apiClient.post<AccessLogResponse>(
+          `/api/data/namespaces/${namespace}/access_logs`,
+          { query, namespace, start_time: busiestHour.start, end_time: busiestHour.end, scroll: false, limit: PEAK_SAMPLE_SIZE }
+        )
+      : Promise.resolve({ logs: [] as AccessLogEntry[] } as AccessLogResponse),
+  ]);
 
-  const tasks = peakHours.map((hour) => async (): Promise<AccessLogEntry[]> => {
-    const logs: AccessLogEntry[] = [];
+  const aggBuckets = aggResult.status === 'fulfilled' ? aggResult.value : {};
+  const rawLogs = sampleResult.status === 'fulfilled' ? (sampleResult.value.logs ?? []) : [];
+  const peakLogs = normalizeLogEntries<AccessLogEntry>(rawLogs, 'peak-sample');
 
-    const initial = await withRetry(
-      () => apiClient.post<AccessLogResponse>(
-        `/api/data/namespaces/${namespace}/access_logs`,
-        { query, namespace, start_time: hour.start, end_time: hour.end, scroll: true, limit: PAGE_SIZE }
-      ),
-      `peak-fetch ${hour.label}`,
-      controller
-    );
+  if (aggResult.status === 'rejected') {
+    console.warn('[Scanner] Batch aggregation failed:', aggResult.reason);
+  }
+  console.log(`[Scanner] Phase 3: ${Object.keys(aggBuckets).length} agg fields, ${peakLogs.length} sample logs`);
+  onProgress(peakLogs.length);
 
-    if (initial.logs) {
-      logs.push(...initial.logs);
-      totalLogs += initial.logs.length;
-      onProgress(totalLogs);
-    }
-
-    // Scroll remaining pages
-    let scrollId = initial.scroll_id;
-    while (scrollId) {
-      const page = await withRetry(
-        () => apiClient.post<AccessLogResponse>(
-          `/api/data/namespaces/${namespace}/access_logs/scroll`,
-          { scroll_id: scrollId!, namespace }
-        ),
-        `peak-scroll ${hour.label}`,
-        controller
-      );
-      if (!page.logs || page.logs.length === 0) break;
-      logs.push(...page.logs);
-      scrollId = page.scroll_id;
-      totalLogs += page.logs.length;
-      onProgress(totalLogs);
-    }
-
-    return logs;
-  });
-
-  const results = await adaptivePool(tasks, controller);
-  const stats = controller.getStats();
-  console.log(`[Scanner] Peak fetch: ${stats.totalRequests} requests, ${stats.rateLimitHits} rate-limited`);
-
-  // Normalize and flatten
-  const rawLogs = results.flat();
-  return normalizeLogEntries<AccessLogEntry>(rawLogs, 'peak-access-logs');
+  return { aggBuckets, peakLogs };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -437,7 +445,7 @@ export async function scanTraffic(
   lbName: string,
   startTime: string,
   endTime: string,
-  onProgress: (p: ScanProgress) => void
+  onProgress: (p: ScanProgress) => void,
 ): Promise<ScanResult> {
   const query = `{vh_name="ves-io-http-loadbalancer-${lbName}"}`;
 
@@ -453,48 +461,52 @@ export async function scanTraffic(
     });
   });
 
-  const totalRequestsEstimate = hourlyVolumes.reduce((sum, v) => sum + v.totalHits, 0);
-  console.log(`[Scanner] Volume scan complete: ${totalRequestsEstimate.toLocaleString()} total requests across ${hourlyVolumes.length} hours`);
+  const totalRequestsEstimate = hourlyVolumes.reduce((sum, v) => sum + v.estimatedActualHits, 0);
+  const totalSampledHits = hourlyVolumes.reduce((sum, v) => sum + v.totalHits, 0);
+  const avgSampleRate = hourlyVolumes.length > 0
+    ? hourlyVolumes.reduce((sum, v) => sum + v.sampleRate, 0) / hourlyVolumes.length
+    : 1;
+  console.log(`[Scanner] Volume scan complete: ~${totalRequestsEstimate.toLocaleString()} estimated actual requests (${totalSampledHits.toLocaleString()} sampled entries, avg sample_rate=${avgSampleRate.toFixed(4)}) across ${hourlyVolumes.length} hours`);
 
-  // Phase 2: Peak detection
+  // Phase 2: Peak detection (identify busiest hours for RPS sample targeting)
   onProgress({ phase: 'peak_detection', message: 'Identifying peak traffic hours...', progress: 58 });
 
-  // Scale peak hours to fetch based on analysis duration
   const totalHours = hourlyVolumes.length;
   const peakCount = totalHours <= 24 ? 2 : totalHours <= 168 ? PEAK_HOURS_TO_FETCH : Math.min(5, Math.ceil(totalHours / 50));
   const peakHours = identifyPeakHours(hourlyVolumes, peakCount);
 
-  const peakTotal = peakHours.reduce((sum, h) => sum + h.totalHits, 0);
   console.log(
-    `[Scanner] Peak hours: ${peakHours.map(h => `${h.label} (${h.totalHits} hits)`).join(', ')} — ` +
-    `${peakTotal.toLocaleString()} logs to download (${((peakTotal / Math.max(totalRequestsEstimate, 1)) * 100).toFixed(1)}% of total)`
+    `[Scanner] Peak hours (${peakHours.length}): ${peakHours.slice(0, 5).map(h => `${h.label} (${h.totalHits} sampled)`).join(', ')}${peakHours.length > 5 ? '...' : ''}`
   );
 
-  // Phase 3: Fetch peak logs
+  // Phase 3: Batch aggregation over full window + small raw sample from busiest hour
   onProgress({
     phase: 'fetching_peaks',
-    message: `Downloading ${peakCount} peak hours (~${peakTotal.toLocaleString()} logs)...`,
+    message: 'Fetching traffic aggregations and sample...',
     progress: 60,
   });
 
   const expectedVhName = `ves-io-http-loadbalancer-${lbName}`;
-  let peakLogs: AccessLogEntry[] = [];
-  if (peakTotal > 0) {
-    const rawLogs = await fetchPeakLogs(namespace, query, peakHours, (count) => {
-      const pct = peakTotal > 0 ? Math.round((count / peakTotal) * 25) : 0;
+  const busiestHour = peakHours.length > 0
+    ? [...peakHours].sort((a, b) => b.totalHits - a.totalHits)[0]
+    : undefined;
+
+  const { aggBuckets, peakLogs: rawSample } = await fetchAggAndSample(
+    namespace, query, startTime, endTime, busiestHour,
+    (count) => {
       onProgress({
         phase: 'fetching_peaks',
-        message: `Peak logs: ${count.toLocaleString()} / ~${peakTotal.toLocaleString()} fetched`,
-        progress: 60 + pct,
+        message: `Aggregations complete, ${count} sample logs fetched`,
+        progress: 82,
       });
-    });
+    }
+  );
 
-    // Client-side filter for this LB
-    peakLogs = rawLogs.filter(l => {
-      const vhName = (l as Record<string, unknown>).vh_name as string | undefined;
-      return !vhName || vhName === expectedVhName;
-    });
-  }
+  // Client-side filter sample for this LB
+  const peakLogs = rawSample.filter(l => {
+    const vhName = (l as Record<string, unknown>).vh_name as string | undefined;
+    return !vhName || vhName === expectedVhName;
+  });
 
   // Phase 4: Security events probe
   onProgress({ phase: 'fetching_security', message: 'Probing security events...', progress: 88 });
@@ -507,7 +519,8 @@ export async function scanTraffic(
 
   console.log(
     `[Scanner] Complete: ${totalRequestsEstimate.toLocaleString()} total requests, ` +
-    `${peakLogs.length.toLocaleString()} peak logs, ${securityResult.count} security events`
+    `${peakLogs.length.toLocaleString()} sample logs, ${securityResult.count} security events, ` +
+    `${Object.keys(aggBuckets).length} agg fields`
   );
 
   onProgress({ phase: 'complete', message: 'Scan complete', progress: 95 });
@@ -519,5 +532,6 @@ export async function scanTraffic(
     totalRequestsEstimate,
     securityEventCount: securityResult.count,
     securityEventSample: filteredSample,
+    aggBuckets,
   };
 }

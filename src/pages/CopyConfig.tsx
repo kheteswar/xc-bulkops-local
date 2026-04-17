@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Building2,
   FolderOpen,
+  HelpCircle,
 } from 'lucide-react';
 import { apiClient } from '../services/api';
 import { F5XCApiClient } from '../services/api';
@@ -443,7 +444,7 @@ export function CopyConfig() {
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => step === 1 ? navigate('/') : setStep(1)}
+              onClick={() => step === 1 ? navigate('/') : step === 2 ? setStep(1) : setStep(2)}
               className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
@@ -459,6 +460,9 @@ export function CopyConfig() {
                 </p>
               </div>
             </div>
+            <Link to="/explainer/copy-config" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+              <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+            </Link>
           </div>
 
           {/* Progress Steps */}

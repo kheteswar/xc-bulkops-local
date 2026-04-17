@@ -30,7 +30,7 @@ export const SEC011_BotProtection: SecurityRule = {
 
     // Check if bot defense is enabled
     const botDefense = spec?.bot_defense as Record<string, unknown>;
-    const disableBotDefense = spec?.disable_bot_defense === true;
+    const disableBotDefense = spec?.disable_bot_defense !== undefined;
 
     if (disableBotDefense) {
       return {
@@ -104,7 +104,7 @@ export const SEC013_L7DDoS: SecurityRule = {
     const ddosMitigation = spec?.ddos_mitigation_rules as Array<Record<string, unknown>>;
     const l7DdosProtection = spec?.l7_ddos_protection as Record<string, unknown>;
     const enableDdosDetection = spec?.enable_ddos_detection;
-    const disableDdosDetection = spec?.disable_ddos_detection === true;
+    const disableDdosDetection = spec?.disable_ddos_detection !== undefined;
 
     if (disableDdosDetection) {
       return {
@@ -192,8 +192,8 @@ export const SEC017_MaliciousUserDetection: SecurityRule = {
     const spec = getSpec(obj);
 
     // Check for MUD settings
-    const enableMud = spec?.enable_malicious_user_detection === true;
-    const disableMud = spec?.disable_malicious_user_detection === true;
+    const enableMud = spec?.enable_malicious_user_detection !== undefined;
+    const disableMud = spec?.disable_malicious_user_detection !== undefined;
     const mudConfig = spec?.malicious_user_detection;
     const mudMitigation = spec?.malicious_user_mitigation as Record<string, unknown>;
 

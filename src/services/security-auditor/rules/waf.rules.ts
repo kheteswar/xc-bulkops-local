@@ -156,7 +156,7 @@ export const SEC009_WAFSignatureAccuracy: SecurityRule = {
       if (signatureSelection?.medium_accuracy_signatures !== false) {
         enabledModes.push('Medium');
       }
-      if (signatureSelection?.low_accuracy_signatures === true) {
+      if (signatureSelection?.low_accuracy_signatures !== undefined) {
         enabledModes.push('Low');
       }
     }
@@ -300,7 +300,7 @@ export const SEC008_LB_WAFAssigned: SecurityRule = {
 
     // Check if WAF is assigned
     const appFirewall = spec?.app_firewall as Record<string, unknown>;
-    const disableWaf = spec?.disable_waf === true;
+    const disableWaf = spec?.disable_waf !== undefined;
 
     if (disableWaf) {
       return {

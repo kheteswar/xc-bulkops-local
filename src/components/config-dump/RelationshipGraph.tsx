@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Info, ArrowLeft } from 'lucide-react';
+import { ZoomIn, ZoomOut, Maximize2, Minimize2, Info, ArrowLeft } from 'lucide-react';
 import type { RelationshipGraphData, GraphNode, GraphEdge, FetchedObject } from '../../services/config-dump';
 import { getTypeColor, OBJECT_TYPES } from '../../services/config-dump';
 
@@ -54,14 +54,14 @@ const MIN_NODE_W = 130;
 const MAX_NODE_W = 240;
 const FOCUS_NODE_W = 200;
 const NODE_H = 28;
-const NODE_GAP = 6;
+const NODE_GAP = 10;
 const CHAR_WIDTH = 6.2;
-const CLUSTER_PAD_X = 14;
-const CLUSTER_PAD_TOP = 36;
-const CLUSTER_PAD_BOT = 14;
-const CLUSTER_GAP = 24;
-const TOP_MARGIN = 20;
-const FOCUS_GROUP_GAP = 20;
+const CLUSTER_PAD_X = 18;
+const CLUSTER_PAD_TOP = 40;
+const CLUSTER_PAD_BOT = 18;
+const CLUSTER_GAP = 40;
+const TOP_MARGIN = 24;
+const FOCUS_GROUP_GAP = 32;
 
 // ── Compute adaptive clustered layout ─────────────────────────────
 
@@ -150,6 +150,25 @@ interface RelationshipGraphProps {
 export function RelationshipGraph({ data, results, onSelectObject }: RelationshipGraphProps) {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Fullscreen
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!wrapperRef.current) return;
+    if (!document.fullscreenElement) {
+      wrapperRef.current.requestFullscreen().catch(() => {});
+    } else {
+      document.exitFullscreen().catch(() => {});
+    }
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener('fullscreenchange', handler);
+    return () => document.removeEventListener('fullscreenchange', handler);
+  }, []);
 
   // Core state
   const [dimensions, setDimensions] = useState({ width: 1200, height: 700 });
@@ -258,15 +277,49 @@ export function RelationshipGraph({ data, results, onSelectObject }: Relationshi
     }
   }, [data.nodes.length, data.edges.length, clusters.length]);
 
+  // ── Transitive descendant helpers ────────────────────────────────
+
+  // Build adjacency list once for efficient traversal
+  const childrenMap = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const e of data.edges) {
+      if (!map.has(e.source)) map.set(e.source, []);
+      map.get(e.source)!.push(e.target);
+    }
+    return map;
+  }, [data.edges]);
+
+  // Compute transitive descendants (BFS following source→target edges)
+  const getDescendants = useCallback((nodeId: string): Set<string> => {
+    const visited = new Set<string>();
+    const queue = [nodeId];
+    visited.add(nodeId);
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      const children = childrenMap.get(current);
+      if (children) {
+        for (const child of children) {
+          if (!visited.has(child)) {
+            visited.add(child);
+            queue.push(child);
+          }
+        }
+      }
+    }
+    return visited;
+  }, [childrenMap]);
+
   // ── Focus mode ──────────────────────────────────────────────────
 
   const enterFocus = useCallback((nodeId: string) => {
-    // Find connected nodes
-    const connectedSet = new Set<string>();
+    // Find all transitive descendants (children, grandchildren, etc.)
+    const allDescendants = getDescendants(nodeId);
+    allDescendants.delete(nodeId); // Remove self, will add back later
+    // Also include direct parents for context
     data.edges.forEach(e => {
-      if (e.source === nodeId && e.target !== nodeId) connectedSet.add(e.target);
-      if (e.target === nodeId && e.source !== nodeId) connectedSet.add(e.source);
+      if (e.target === nodeId && e.source !== nodeId) allDescendants.add(e.source);
     });
+    const connectedSet = allDescendants;
 
     if (connectedSet.size === 0) {
       if (savedPositionsRef.current) {
@@ -350,7 +403,7 @@ export function RelationshipGraph({ data, results, onSelectObject }: Relationshi
     const allFocusIds = new Set<string>([nodeId, ...connectedSet]);
     setNodePositions(next);
     setFocusMeta({ cx, cy, nodeIds: allFocusIds, groups: focusGroups });
-  }, [data.edges, data.nodes, dimensions, nodePositions, focusNodeW]);
+  }, [data.edges, data.nodes, dimensions, nodePositions, focusNodeW, getDescendants]);
 
   const exitFocus = useCallback(() => {
     if (savedPositionsRef.current) {
@@ -448,27 +501,28 @@ export function RelationshipGraph({ data, results, onSelectObject }: Relationshi
 
   const sharedObjects = useMemo(() => data.nodes.filter(n => n.parentCount >= 2), [data.nodes]);
 
+  const connectedNodes = useMemo(() => {
+    const target = hoveredNode || selectedNode;
+    if (!target) return new Set<string>();
+    // All transitive descendants (children, grandchildren, etc.)
+    const set = getDescendants(target);
+    // Also add direct parents (one level up for context)
+    data.edges.forEach(e => {
+      if (e.target === target) set.add(e.source);
+    });
+    return set;
+  }, [hoveredNode, selectedNode, data.edges, getDescendants]);
+
   const highlightedEdges = useMemo(() => {
     const target = hoveredNode || selectedNode;
     if (!target) return new Set<string>();
     const set = new Set<string>();
+    // Highlight all edges where both endpoints are in the connected set
     data.edges.forEach((e, i) => {
-      if (e.source === target || e.target === target) set.add(String(i));
+      if (connectedNodes.has(e.source) && connectedNodes.has(e.target)) set.add(String(i));
     });
     return set;
-  }, [hoveredNode, selectedNode, data.edges]);
-
-  const connectedNodes = useMemo(() => {
-    const target = hoveredNode || selectedNode;
-    if (!target) return new Set<string>();
-    const set = new Set<string>();
-    set.add(target);
-    data.edges.forEach(e => {
-      if (e.source === target) set.add(e.target);
-      if (e.target === target) set.add(e.source);
-    });
-    return set;
-  }, [hoveredNode, selectedNode, data.edges]);
+  }, [hoveredNode, selectedNode, data.edges, connectedNodes]);
 
   // Z-order: focused nodes render last (on top)
   const sortedNodes = useMemo(() => {
@@ -497,7 +551,7 @@ export function RelationshipGraph({ data, results, onSelectObject }: Relationshi
   // ── Render ──────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full">
+    <div ref={wrapperRef} className={`flex ${isFullscreen ? 'h-screen bg-slate-900' : 'h-full'}`}>
       {/* Graph area */}
       <div
         ref={containerRef}
@@ -789,6 +843,10 @@ export function RelationshipGraph({ data, results, onSelectObject }: Relationshi
             </button>
             <button onClick={fitToView} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors" title="Fit to View">
               <Maximize2 className="w-4 h-4" />
+            </button>
+            <div className="w-px h-4 bg-slate-600 mx-0.5" />
+            <button onClick={toggleFullscreen} className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700 rounded transition-colors" title={isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'}>
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
             </button>
           </div>
           <span className="text-xs text-slate-500">{Math.round(zoom * 100)}%</span>

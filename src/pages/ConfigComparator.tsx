@@ -4,7 +4,7 @@ import {
   ArrowLeft, ArrowRight, ArrowRightLeft, Check, Search, Server, Shield,
   Globe, AlertTriangle, Loader2, Split, Database, LayoutList, X, Play,
   Key, Layers, Eye, EyeOff, CheckCircle, FolderOpen, Cloud,
-  FileJson, Users, Activity, Code, Filter, ChevronDown, ChevronRight, Zap
+  FileJson, Users, Activity, Code, Filter, ChevronDown, ChevronRight, Zap, HelpCircle
 } from 'lucide-react';
 import { apiClient } from '../services/api';
 import { useApp } from '../context/AppContext';
@@ -634,6 +634,9 @@ export function ConfigComparator() {
                 <p className="text-xs text-slate-500">Diff configs across tenants & namespaces</p>
               </div>
             </div>
+            <Link to="/explainer/config-comparator" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
+              <HelpCircle className="w-3.5 h-3.5" /> How does this work?
+            </Link>
           </div>
           <div className="flex items-center gap-2 text-sm bg-slate-800/50 p-1 rounded-full border border-slate-700/50">
             {[1, 2, 3].map(s => (

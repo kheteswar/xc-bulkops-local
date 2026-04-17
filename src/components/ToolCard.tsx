@@ -1,5 +1,28 @@
-import { ChevronRight, type LucideIcon } from 'lucide-react';
+import { ChevronRight, HelpCircle, Pin, type LucideIcon } from 'lucide-react';
 import { Link } from 'react-router-dom';
+
+/** Map tool routes to their explainer page routes */
+const EXPLAINER_ROUTES: Record<string, string> = {
+  '/waf-scanner': '/explainer/waf-scanner',
+  '/security-auditor': '/explainer/security-auditor',
+  '/fp-analyzer': '/explainer/fp-analyzer',
+  '/ddos-advisor': '/explainer/ddos-advisor',
+  '/config-visualizer': '/explainer/config-viewer',
+  '/config-comparator': '/explainer/config-comparator',
+  '/config-explorer': '/explainer/dependency-map',
+  '/config-dump': '/explainer/config-dump',
+  '/http-sanity-checker': '/explainer/http-sanity',
+  '/log-analyzer': '/explainer/log-analyzer',
+  '/load-tester': '/explainer/load-tester',
+  '/api-shield': '/explainer/api-shield',
+  '/api-report': '/explainer/api-report',
+  '/soc-lobby': '/explainer/soc-room',
+  '/prefix-builder': '/explainer/prefix-builder',
+  '/copy-config': '/explainer/copy-config',
+  '/property-viewer': '/explainer/property-viewer',
+  '/http-lb-forge': '/explainer/http-lb-forge',
+  '/rate-limit-advisor': '/rate-limit-explainer',
+};
 
 interface ToolCardProps {
   name: string;
@@ -11,6 +34,8 @@ interface ToolCardProps {
   badge?: string;
   featured?: boolean;
   disabled?: boolean;
+  isPinned?: boolean;
+  onTogglePin?: () => void;
 }
 
 const tagStyles = {
@@ -36,19 +61,42 @@ export function ToolCard({
   badge,
   featured,
   disabled,
+  isPinned,
+  onTogglePin,
 }: ToolCardProps) {
   const iconType = tags[0]?.type || 'report';
   const iconBg = iconBgStyles[iconType as keyof typeof iconBgStyles] || iconBgStyles.report;
 
+  const pinButton = !disabled && onTogglePin ? (
+    <button
+      onClick={e => { e.preventDefault(); e.stopPropagation(); onTogglePin(); }}
+      title={isPinned ? 'Unpin' : 'Pin to top'}
+      className={`absolute top-3 left-3 z-10 p-1.5 rounded-md transition-all ${
+        isPinned
+          ? 'text-amber-400 bg-amber-400/15 hover:bg-amber-400/25'
+          : 'text-slate-600 hover:text-slate-300 hover:bg-slate-700/60 opacity-0 group-hover:opacity-100'
+      }`}
+    >
+      <Pin className={`w-3.5 h-3.5 ${isPinned ? 'fill-amber-400' : ''}`} />
+    </button>
+  ) : null;
+
   const content = (
     <article
       className={`relative flex flex-col p-6 rounded-xl border transition-all cursor-pointer group ${
-        featured
+        isPinned
+          ? 'bg-gradient-to-b from-amber-500/10 to-slate-800/60 border-amber-500/40 hover:border-amber-500/60'
+          : featured
           ? 'bg-gradient-to-b from-blue-500/10 to-slate-800/50 border-blue-500/30 hover:border-blue-500/50'
           : 'bg-slate-800/50 border-slate-700 hover:border-slate-600 hover:bg-slate-800/80'
       } ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:-translate-y-0.5 hover:shadow-lg hover:shadow-black/20'}`}
     >
-      {featured && (
+      {pinButton}
+
+      {isPinned && (
+        <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-amber-500 to-yellow-400" />
+      )}
+      {!isPinned && featured && (
         <div className="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-blue-500 to-cyan-500" />
       )}
 
@@ -58,7 +106,18 @@ export function ToolCard({
         </span>
       )}
 
-      <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${iconBg}`}>
+      {to && EXPLAINER_ROUTES[to] && (
+        <Link
+          to={EXPLAINER_ROUTES[to]}
+          onClick={e => e.stopPropagation()}
+          className="absolute bottom-4 right-14 z-10 flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 border border-transparent hover:border-blue-500/30 transition-all"
+        >
+          <HelpCircle className="w-3.5 h-3.5" />
+          <span>How it works</span>
+        </Link>
+      )}
+
+      <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${isPinned ? 'bg-amber-500/15 text-amber-400' : iconBg}`}>
         <Icon className="w-6 h-6" />
       </div>
 

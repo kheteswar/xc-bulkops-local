@@ -1,8 +1,8 @@
 // DDoS Settings Advisor - Types
 
-export type TimePeriod = '24h' | '7d' | '14d' | '30d';
+export type TimePeriod = '24h' | '7d' | '14d' | '30d' | 'custom';
 
-export const TIME_PERIOD_HOURS: Record<TimePeriod, number> = {
+export const TIME_PERIOD_HOURS: Record<string, number> = {
   '24h': 24,
   '7d': 168,
   '14d': 336,
@@ -14,6 +14,7 @@ export const TIME_PERIOD_LABELS: Record<TimePeriod, string> = {
   '7d': 'Last 7 Days',
   '14d': 'Last 14 Days',
   '30d': 'Last 30 Days',
+  'custom': 'Custom Range',
 };
 
 export interface DdosAnalysisProgress {

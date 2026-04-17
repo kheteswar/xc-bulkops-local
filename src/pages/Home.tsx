@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react';
 import {
   Wrench,
   Globe,
@@ -24,12 +25,40 @@ import {
   Database,
   GitBranch,
   BarChart2,
+  Zap,
+  Pin,
 } from 'lucide-react';
 import { ConnectionPanel } from '../components/ConnectionPanel';
 import { ToolCard } from '../components/ToolCard';
 import { useApp } from '../context/AppContext';
 
+const PINNED_STORAGE_KEY = 'xc-app-store:pinned-tools';
+
 const tools = [
+  {
+    name: 'API Shield Advisor',
+    description: 'Guided API security assessment. Scans your F5 XC config, discovers APIs, profiles traffic, and walks you through enabling 90+ security controls with data-driven recommendations.',
+    icon: Shield,
+    to: '/api-shield',
+    tags: [
+      { label: 'Analyze', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'Live SOC Room',
+    description: 'Real-time security operations center. Continuously monitors F5 XC with 23 anomaly detectors, 12 auto-investigation workflows, and live dashboards.',
+    icon: Activity,
+    to: '/soc-lobby',
+    tags: [
+      { label: 'Live Monitor', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
   {
     name: 'FP Analyzer',
     description: 'Analyze WAF security events to detect false positives. Reviews signatures, violations, and threat intel with 7-signal scoring.',
@@ -48,6 +77,19 @@ const tools = [
     icon: Database,
     to: '/config-dump',
     tags: [
+      { label: 'Export', type: 'report' as const },
+      { label: 'Read-Only', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
+    name: 'API Report Dashboard',
+    description: 'API discovery stats, learnt schema parsing, and detailed endpoint report with consolidated Excel export across multiple load balancers.',
+    icon: BarChart2,
+    to: '/api-report',
+    tags: [
+      { label: 'Analyze', type: 'report' as const },
       { label: 'Export', type: 'report' as const },
       { label: 'Read-Only', type: 'safe' as const },
     ],
@@ -206,6 +248,18 @@ const tools = [
     featured: true,
   },
   {
+    name: 'Load Tester',
+    description: 'Stress test any endpoint with configurable RPS, concurrency, and real-time response time metrics.',
+    icon: Zap,
+    to: '/load-tester',
+    tags: [
+      { label: 'Testing', type: 'update' as const },
+      { label: 'Standalone', type: 'safe' as const },
+    ],
+    badge: 'New',
+    featured: true,
+  },
+  {
     name: 'CDN Factory',
     description: 'Spin up CDN distributions en masse with bulk configuration.',
     icon: Globe,
@@ -282,8 +336,31 @@ const features = [
   },
 ];
 
+function loadPinned(): Set<string> {
+  try {
+    const raw = localStorage.getItem(PINNED_STORAGE_KEY);
+    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
 export function Home() {
   const { isConnected } = useApp();
+  const [pinned, setPinned] = useState<Set<string>>(loadPinned);
+
+  const togglePin = useCallback((name: string) => {
+    setPinned(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      try { localStorage.setItem(PINNED_STORAGE_KEY, JSON.stringify([...next])); } catch { /* ignore */ }
+      return next;
+    });
+  }, []);
+
+  const pinnedTools = tools.filter(t => pinned.has(t.name));
+  const unpinnedTools = tools.filter(t => !pinned.has(t.name));
 
   return (
     <main className="max-w-7xl mx-auto px-6 py-8">
@@ -308,13 +385,35 @@ export function Home() {
       </section>
 
       <section id="tools" className="mb-12">
+        {pinnedTools.length > 0 && (
+          <div className="mb-8">
+            <div className="flex items-center gap-2 mb-4">
+              <Pin className="w-4 h-4 fill-amber-400 text-amber-400" />
+              <h2 className="text-sm font-semibold text-amber-400 uppercase tracking-wider">Pinned</h2>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {pinnedTools.map(tool => (
+                <ToolCard
+                  key={tool.name}
+                  {...tool}
+                  disabled={tool.disabled || !isConnected}
+                  isPinned={true}
+                  onTogglePin={() => togglePin(tool.name)}
+                />
+              ))}
+            </div>
+            <div className="mt-8 border-t border-slate-700/50" />
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {tools.map(tool => (
+          {unpinnedTools.map(tool => (
             <ToolCard
               key={tool.name}
               {...tool}
               disabled={tool.disabled || !isConnected}
+              isPinned={false}
+              onTogglePin={tool.disabled ? undefined : () => togglePin(tool.name)}
             />
           ))}
         </div>
