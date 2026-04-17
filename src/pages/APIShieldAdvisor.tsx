@@ -5,7 +5,7 @@
 // ═══════════════════════════════════════════════════════════════════════════
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowLeft, Shield, Loader2, Play, Search,
   ChevronDown, ChevronUp, AlertTriangle, CheckCircle,
@@ -203,6 +203,7 @@ function RecCard({ rec }: { rec: Recommendation }) {
 
 export function APIShieldAdvisor() {
   const { isConnected } = useApp();
+  const navigate = useNavigate();
   const toast = useToast();
   const [namespaces, setNamespaces] = useState<Namespace[]>([]);
   const [selectedNs, setSelectedNs] = useState('');
@@ -272,7 +273,7 @@ export function APIShieldAdvisor() {
     <main className="max-w-7xl mx-auto px-6 py-8">
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-4">
-          <Link to="/" className="p-2 hover:bg-slate-800 rounded-lg transition-colors"><ArrowLeft className="w-5 h-5 text-slate-400" /></Link>
+          <button onClick={() => navigate(-1)} className="p-2 hover:bg-slate-800 rounded-lg transition-colors"><ArrowLeft className="w-5 h-5 text-slate-400" /></button>
           <div><h1 className="text-2xl font-bold text-slate-100">API Shield Advisor</h1><p className="text-sm text-slate-400">Guided API security assessment against OWASP API Top 10</p></div>
           <Link to="/explainer/api-shield" className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 border border-slate-700 hover:border-blue-500/50 text-slate-400 hover:text-blue-400 rounded-lg text-xs transition-colors">
             <HelpCircle className="w-3.5 h-3.5" /> How does this work?
