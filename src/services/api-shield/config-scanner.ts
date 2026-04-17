@@ -126,15 +126,27 @@ function extractSecurityConfig(
 ): LBSecurityConfig {
   const spec = (lbData.spec || lbData.get_spec || lbData) as Record<string, unknown>;
 
+  // Debug: log which keys exist in the spec for feature detection
+  console.log(`[ConfigScanner] ${lbData.metadata ? (lbData.metadata as Record<string,unknown>).name : 'unknown'}: spec keys =`, Object.keys(spec).filter(k =>
+    k.includes('api') || k.includes('waf') || k.includes('bot') || k.includes('ddos') ||
+    k.includes('rate') || k.includes('malicious') || k.includes('ip_rep') || k.includes('threat') ||
+    k.includes('disable') || k.includes('enable')
+  ));
+
   // --- WAF ---
   const appFirewall = spec.app_firewall;
   const wafEnabled = isNonEmptyRef(appFirewall) ||
-    spec.disable_waf === undefined && appFirewall !== undefined;
+    (spec.disable_waf === undefined && appFirewall !== undefined);
   const wafPolicyName = extractRefName(appFirewall);
 
   // --- API Discovery ---
-  // Match Config Visualizer logic: !disable && !!enable
-  const apiDiscoveryEnabled = !spec.disable_api_discovery && !!spec.enable_api_discovery;
+  // F5 XC pattern: enable_api_discovery: {...} = enabled, disable_api_discovery: {} = disabled
+  const hasEnableApiDiscovery = spec.enable_api_discovery !== undefined && spec.enable_api_discovery !== null;
+  const hasDisableApiDiscovery = spec.disable_api_discovery !== undefined && spec.disable_api_discovery !== null;
+  const apiDiscoveryEnabled = hasEnableApiDiscovery && !hasDisableApiDiscovery;
+  console.log(`[ConfigScanner] API Discovery: enable_key=${hasEnableApiDiscovery} (type=${typeof spec.enable_api_discovery}), disable_key=${hasDisableApiDiscovery} (type=${typeof spec.disable_api_discovery}), result=${apiDiscoveryEnabled}`);
+  console.log(`[ConfigScanner] spec has 'enable_api_discovery'? ${'enable_api_discovery' in spec}, value:`, spec.enable_api_discovery);
+  console.log(`[ConfigScanner] spec has 'disable_api_discovery'? ${'disable_api_discovery' in spec}, value:`, spec.disable_api_discovery);
 
   // --- API Definition ---
   const apiDef = spec.api_definition;
@@ -274,6 +286,14 @@ function extractSecurityConfig(
     originPoolCount,
     rawSpec: spec,
   };
+
+  console.log(`[ConfigScanner] ${name} feature flags:`, {
+    waf: wafEnabled, apiDisc: apiDiscoveryEnabled, apiDef: apiDefinitionAttached,
+    schema: schemaValidationEnabled, bot: botDefenseEnabled, ddos: ddosProtectionEnabled,
+    rateLimit: rateLimitEnabled, mud: maliciousUserDetectionEnabled, ipRep: ipReputationEnabled,
+    userId: userIdentificationEnabled, cors: corsEnabled, mtls: mtlsEnabled,
+    dataGuard: dataGuardEnabled, sensitiveData: sensitiveDataDiscoveryEnabled,
+  });
 
   console.log(`[API Shield] ${name} config scan:`, {
     waf: wafEnabled, apiDisc: apiDiscoveryEnabled, apiDef: apiDefinitionAttached,
