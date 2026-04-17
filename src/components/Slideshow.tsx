@@ -74,9 +74,9 @@ export function Slideshow({ slides, toolName, toolRoute, toolIcon: ToolIcon }: S
           </div>
         </div>
 
-        {/* Slide — fills the screen */}
-        <div className="flex-1 overflow-y-auto px-16 py-6">
-          <div className="max-w-5xl mx-auto">
+        {/* Slide — fills the screen, scaled up */}
+        <div className="flex-1 overflow-y-auto px-8 py-4 flex items-start justify-center">
+          <div className="w-full max-w-[95vw] origin-top scale-[1.15] xl:scale-[1.25] 2xl:scale-[1.35]">
             <Slide />
           </div>
         </div>
