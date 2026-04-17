@@ -75,10 +75,8 @@ export function Slideshow({ slides, toolName, toolRoute, toolIcon: ToolIcon }: S
         </div>
 
         {/* Slide — uses full screen space */}
-        <div className="flex-1 overflow-y-auto px-12 lg:px-20 xl:px-28 py-8">
-          <div className="max-w-6xl mx-auto text-lg">
-            <Slide />
-          </div>
+        <div className="flex-1 overflow-y-auto px-10 lg:px-16 xl:px-24 py-6">
+          <Slide />
         </div>
 
         {/* Bottom nav — minimal */}
@@ -122,7 +120,7 @@ export function Slideshow({ slides, toolName, toolRoute, toolIcon: ToolIcon }: S
       </div>
 
       {/* Slide content */}
-      <div className="flex-1 bg-slate-800/30 border border-slate-700 rounded-2xl p-8 min-h-[500px]">
+      <div className="flex-1 bg-slate-800/30 border border-slate-700 rounded-2xl p-8">
         <Slide />
       </div>
 
@@ -156,14 +154,18 @@ export function IntroSlide({ icon: Icon, toolName, tagline, what, problem, who, 
   when: string;
 }) {
   return (
-    <div className="flex flex-col items-center text-center">
-      <div className="w-20 h-20 bg-blue-500/15 rounded-2xl flex items-center justify-center mb-6">
-        <Icon className="w-10 h-10 text-blue-400" />
+    <div>
+      <div className="flex items-center gap-4 mb-6">
+        <div className="w-14 h-14 bg-blue-500/15 rounded-2xl flex items-center justify-center flex-shrink-0">
+          <Icon className="w-7 h-7 text-blue-400" />
+        </div>
+        <div>
+          <h1 className="text-3xl font-bold text-slate-100">{toolName}</h1>
+          <p className="text-base text-slate-400">{tagline}</p>
+        </div>
       </div>
-      <h1 className="text-3xl font-bold text-slate-100 mb-2">{toolName}</h1>
-      <p className="text-lg text-slate-400 mb-8 max-w-2xl">{tagline}</p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-3xl text-left">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-5">
           <div className="text-xs text-blue-400 font-semibold uppercase tracking-wider mb-2">What is it?</div>
           <p className="text-sm text-slate-300 leading-relaxed">{what}</p>

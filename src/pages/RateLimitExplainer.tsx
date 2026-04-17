@@ -76,14 +76,18 @@ function TokenBucketDemo() {
 
 function Slide1() {
   return (
-    <div className="flex flex-col items-center text-center">
-      <div className="w-20 h-20 bg-blue-500/15 rounded-2xl flex items-center justify-center mb-6">
-        <Gauge className="w-10 h-10 text-blue-400" />
+    <div>
+      <div className="flex items-center gap-4 mb-6">
+        <div className="w-14 h-14 bg-blue-500/15 rounded-2xl flex items-center justify-center flex-shrink-0">
+          <Gauge className="w-7 h-7 text-blue-400" />
+        </div>
+        <div>
+          <h1 className="text-3xl font-bold text-slate-100">Rate Limit Advisor</h1>
+          <p className="text-base text-slate-400">Data-driven rate limit recommendations for F5 XC HTTP Load Balancers</p>
+        </div>
       </div>
-      <h1 className="text-3xl font-bold text-slate-100 mb-2">Rate Limit Advisor</h1>
-      <p className="text-lg text-slate-400 mb-8 max-w-2xl">Data-driven rate limit recommendations for F5 XC HTTP Load Balancers — so you don't have to guess</p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-3xl text-left">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-5">
           <div className="text-xs text-blue-400 font-semibold uppercase tracking-wider mb-2">What is it?</div>
           <p className="text-sm text-slate-300 leading-relaxed">Analyses real traffic on your HTTP Load Balancers and recommends the optimal Number (N) and Burst Multiplier (B) settings for F5 XC's per-user rate limiter.</p>
@@ -519,8 +523,8 @@ export function RateLimitExplainer() {
             <button onClick={toggleFullscreen} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg"><Minimize2 className="w-5 h-5" /></button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto px-12 lg:px-20 xl:px-28 py-8">
-          <div className="max-w-6xl mx-auto text-lg"><SlideComponent /></div>
+        <div className="flex-1 overflow-y-auto px-10 lg:px-16 xl:px-24 py-6">
+          <SlideComponent />
         </div>
         <div className="flex items-center justify-between px-8 py-4">
           <button onClick={() => setCurrentSlide(s => Math.max(s - 1, 0))} disabled={currentSlide === 0}
