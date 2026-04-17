@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Shield, Gauge, Droplets, Check, X, Maximize2, Minimize2,
+  ArrowLeft, Shield, Gauge, Droplets, Check, X, Maximize2, Minimize2, Clock,
   TrendingUp, Users, Zap, ChevronRight, ChevronLeft,
 } from 'lucide-react';
 
@@ -11,61 +11,213 @@ import {
 
 function TokenBucketDemo() {
   const [tokens, setTokens] = useState(80);
-  const [rps, setRps] = useState(0);
   const [blocked, setBlocked] = useState(0);
+  const [allowed, setAllowed] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
   const [mode, setMode] = useState<'idle' | 'normal' | 'burst' | 'attack'>('idle');
+  const [incomingDots, setIncomingDots] = useState<Array<{ id: number; blocked: boolean }>>([]);
+  const dotIdRef = useRef(0);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
+
   const N = 40, B = 2, capacity = N * B;
+  const incoming = mode === 'normal' ? 20 : mode === 'burst' ? 70 : mode === 'attack' ? 55 : 0;
+  const modeColor = mode === 'normal' ? 'emerald' : mode === 'burst' ? 'amber' : mode === 'attack' ? 'red' : 'slate';
+  const modeLabel = mode === 'normal' ? 'Normal User' : mode === 'burst' ? 'Page Load Burst' : mode === 'attack' ? 'Sustained Attacker' : '';
 
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
-    if (mode === 'idle') { setTokens(capacity); setRps(0); setBlocked(0); return; }
-    const incoming = mode === 'normal' ? 20 : mode === 'burst' ? 70 : 55;
-    setRps(incoming); setBlocked(0);
+    if (mode === 'idle') { setTokens(capacity); setBlocked(0); setAllowed(0); setElapsed(0); setIncomingDots([]); return; }
+    setBlocked(0); setAllowed(0); setElapsed(0); setIncomingDots([]);
+
     intervalRef.current = setInterval(() => {
+      setElapsed(e => e + 1);
       setTokens(prev => {
         const refilled = Math.min(prev + N / 10, capacity);
         const consumed = incoming / 10;
-        if (refilled >= consumed) return Math.min(refilled - consumed, capacity);
-        setBlocked(b => b + Math.round(consumed - refilled));
-        return Math.max(refilled - consumed, 0);
+        const isBlocked = refilled < consumed;
+
+        // Spawn visual dot
+        const id = ++dotIdRef.current;
+        setIncomingDots(dots => [...dots.slice(-12), { id, blocked: isBlocked }]);
+
+        if (isBlocked) {
+          setBlocked(b => b + Math.round(consumed - refilled));
+          return Math.max(refilled - consumed, 0);
+        }
+        setAllowed(a => a + Math.round(consumed));
+        return Math.min(refilled - consumed, capacity);
       });
     }, 100);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [mode, capacity]);
+  }, [mode, capacity, incoming]);
 
   const fillPct = Math.round((tokens / capacity) * 100);
   const fillColor = fillPct > 50 ? 'bg-emerald-500' : fillPct > 20 ? 'bg-amber-500' : 'bg-red-500';
+  const bucketEmpty = tokens <= 2;
+  const elapsedSec = (elapsed / 10).toFixed(1);
+  const netPerTick = incoming / 10 - N / 10;
+  const timeToEmpty = netPerTick > 0 ? Math.ceil(tokens / netPerTick / 10) : Infinity;
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 items-center">
-      <div className="flex flex-col items-center">
-        <div className="text-xs text-slate-400 mb-3">Capacity: {capacity} tokens ({N} × {B})</div>
-        <div className="relative w-40 h-56 border-2 border-slate-500 rounded-b-2xl overflow-hidden bg-slate-900">
-          <div className={`absolute bottom-0 left-0 right-0 transition-all duration-200 ${fillColor}`} style={{ height: `${fillPct}%` }} />
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-3xl font-bold text-white drop-shadow-lg">{Math.round(tokens)}</span>
-          </div>
-          <div className="absolute -top-7 left-1/2 -translate-x-1/2 text-emerald-400 text-xs font-semibold animate-bounce">+{N}/min ↓</div>
-        </div>
-        <div className="mt-3 text-sm text-slate-300">{rps > 0 && <>Incoming: <span className="font-bold text-amber-400">{rps} req/min</span></>}</div>
-        {blocked > 0 && <div className="mt-1 text-sm text-red-400 font-semibold animate-pulse">{blocked} requests blocked</div>}
-      </div>
-      <div className="space-y-3">
-        <p className="text-sm text-slate-400 leading-relaxed">
-          The bucket holds <span className="text-slate-200 font-medium">{capacity} tokens</span>. Tokens refill at <span className="text-emerald-400 font-medium">{N}/min</span>. Each request costs 1 token. Empty bucket = blocked.
-        </p>
-        {([['normal', 'Normal User', '20 req/min — well under limit', 'bg-emerald-600'],
-           ['burst', 'Page Load Burst', '70 req/min — brief spike, bucket absorbs it', 'bg-amber-600'],
-           ['attack', 'Sustained Attacker', '55 req/min — drains bucket, gets blocked', 'bg-red-600']] as const).map(([id, label, desc, color]) => (
+    <div>
+      {/* Scenario buttons */}
+      <div className="grid grid-cols-3 gap-3 mb-6">
+        {([
+          ['normal', 'Normal User', '20 req/min', 'emerald', 'User browsing normally'],
+          ['burst', 'Page Load Burst', '70 req/min', 'amber', 'SPA loading many resources'],
+          ['attack', 'Sustained Attacker', '55 req/min', 'red', 'Scraper hammering your API'],
+        ] as const).map(([id, label, rate, color, desc]) => (
           <button key={id} onClick={() => setMode(mode === id ? 'idle' : id)}
-            className={`w-full text-left p-3 rounded-lg border transition-all ${mode === id ? `${color} border-transparent text-white` : 'border-slate-700 text-slate-300 hover:border-slate-600'}`}>
-            <div className="font-medium text-sm">{label}</div>
-            <div className="text-xs opacity-75">{desc}</div>
+            className={`text-left p-4 rounded-xl border-2 transition-all ${
+              mode === id
+                ? `border-${color}-500 bg-${color}-500/15`
+                : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+            }`}>
+            <div className={`text-sm font-bold ${mode === id ? `text-${color}-400` : 'text-slate-200'}`}>{label}</div>
+            <div className={`text-lg font-mono font-bold mt-1 ${mode === id ? `text-${color}-400` : 'text-slate-400'}`}>{rate}</div>
+            <div className="text-xs text-slate-500 mt-1">{desc}</div>
           </button>
         ))}
-        {mode === 'idle' && <p className="text-xs text-slate-500 italic">Click a scenario to see the token bucket in action</p>}
       </div>
+
+      {mode !== 'idle' ? (
+        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
+          {/* Header with timer */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-3 h-3 rounded-full bg-${modeColor}-500 animate-pulse`} />
+              <span className={`text-sm font-semibold text-${modeColor}-400`}>{modeLabel}</span>
+              <span className="text-slate-500">·</span>
+              <span className="text-sm text-slate-400 font-mono">{incoming} req/min incoming</span>
+            </div>
+            <div className="flex items-center gap-2 bg-slate-900/50 rounded-lg px-3 py-1.5">
+              <Clock className="w-3.5 h-3.5 text-slate-500" />
+              <span className="text-sm font-mono text-slate-300">{elapsedSec}s</span>
+            </div>
+          </div>
+
+          {/* Main visualization: Incoming → Bucket → Output */}
+          <div className="flex items-center gap-4 mb-6">
+            {/* Incoming traffic stream */}
+            <div className="flex-1">
+              <div className="text-xs text-slate-500 mb-2 text-center">Incoming Requests</div>
+              <div className="h-16 bg-slate-900/50 rounded-lg flex items-center justify-end px-2 gap-1 overflow-hidden">
+                {incomingDots.map(dot => (
+                  <div key={dot.id}
+                    className={`w-3 h-3 rounded-full flex-shrink-0 transition-all duration-300 ${
+                      dot.blocked ? 'bg-red-500 opacity-60' : `bg-${modeColor}-500`
+                    }`}
+                    style={{ animation: 'slideIn 0.3s ease-out' }} />
+                ))}
+                <div className={`text-lg font-bold text-${modeColor}-400 ml-2`}>→</div>
+              </div>
+            </div>
+
+            {/* Token Bucket */}
+            <div className="flex flex-col items-center flex-shrink-0">
+              <div className="text-xs text-emerald-400 font-semibold mb-1 animate-pulse">+{N}/min refill</div>
+              <div className={`relative w-24 h-32 border-2 rounded-b-xl overflow-hidden bg-slate-900 ${
+                bucketEmpty ? 'border-red-500' : 'border-slate-500'
+              }`}>
+                <div className={`absolute bottom-0 left-0 right-0 transition-all duration-200 ${fillColor}`}
+                  style={{ height: `${fillPct}%` }} />
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-2xl font-bold text-white drop-shadow-lg">{Math.round(tokens)}</span>
+                  <span className="text-[9px] text-slate-400">/ {capacity}</span>
+                </div>
+              </div>
+              <div className="text-xs text-slate-500 mt-1">Token Bucket</div>
+            </div>
+
+            {/* Output: Allowed vs Blocked */}
+            <div className="flex-1">
+              <div className="text-xs text-slate-500 mb-2 text-center">Output</div>
+              <div className="h-16 grid grid-rows-2 gap-1">
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center px-3">
+                  <Check className="w-3.5 h-3.5 text-emerald-400 mr-2" />
+                  <span className="text-xs text-emerald-400 font-medium">Allowed</span>
+                  <span className="text-sm font-bold text-emerald-400 ml-auto font-mono">{allowed}</span>
+                </div>
+                <div className={`border rounded-lg flex items-center px-3 ${
+                  blocked > 0 ? 'bg-red-500/10 border-red-500/20' : 'bg-slate-900/30 border-slate-700'
+                }`}>
+                  <X className={`w-3.5 h-3.5 mr-2 ${blocked > 0 ? 'text-red-400' : 'text-slate-600'}`} />
+                  <span className={`text-xs font-medium ${blocked > 0 ? 'text-red-400' : 'text-slate-600'}`}>Blocked</span>
+                  <span className={`text-sm font-bold ml-auto font-mono ${blocked > 0 ? 'text-red-400' : 'text-slate-600'}`}>{blocked}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Live stats bar */}
+          <div className="grid grid-cols-4 gap-3">
+            <div className="bg-slate-900/50 rounded-lg p-3 text-center">
+              <div className="text-[10px] text-slate-500 uppercase">Bucket Level</div>
+              <div className={`text-lg font-bold font-mono ${fillPct > 50 ? 'text-emerald-400' : fillPct > 20 ? 'text-amber-400' : 'text-red-400'}`}>{fillPct}%</div>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg p-3 text-center">
+              <div className="text-[10px] text-slate-500 uppercase">Net Drain</div>
+              <div className={`text-lg font-bold font-mono ${incoming > N ? 'text-red-400' : 'text-emerald-400'}`}>
+                {incoming > N ? `-${incoming - N}` : `+${N - incoming}`}/min
+              </div>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg p-3 text-center">
+              <div className="text-[10px] text-slate-500 uppercase">Time to Empty</div>
+              <div className={`text-lg font-bold font-mono ${timeToEmpty < 10 ? 'text-red-400' : timeToEmpty === Infinity ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {timeToEmpty === Infinity ? '∞' : `~${timeToEmpty}s`}
+              </div>
+            </div>
+            <div className="bg-slate-900/50 rounded-lg p-3 text-center">
+              <div className="text-[10px] text-slate-500 uppercase">Status</div>
+              <div className={`text-lg font-bold ${bucketEmpty ? 'text-red-400 animate-pulse' : 'text-emerald-400'}`}>
+                {bucketEmpty ? '🚫 BLOCKED' : '✓ PASSING'}
+              </div>
+            </div>
+          </div>
+
+          {/* Explanation for current scenario */}
+          <div className={`mt-4 p-3 bg-${modeColor}-500/5 border border-${modeColor}-500/20 rounded-lg text-sm`}>
+            {mode === 'normal' && (
+              <p className="text-emerald-300">
+                <strong>Normal user at 20 req/min:</strong> Refill is {N}/min, consumption is only 20/min.
+                Bucket gains {N - 20} tokens/min — it stays full. This user is <strong>never blocked</strong>.
+              </p>
+            )}
+            {mode === 'burst' && (
+              <p className="text-amber-300">
+                <strong>Page load burst at 70 req/min:</strong> Consuming {70 - N} more tokens/min than the {N}/min refill.
+                The bucket ({capacity} tokens) can absorb ~{Math.round(capacity / ((70 - N) / 60))}s of this burst before emptying.
+                {bucketEmpty ? ' Bucket is now empty — requests are being blocked!' : ' Watch the bucket drain...'}
+              </p>
+            )}
+            {mode === 'attack' && (
+              <p className="text-red-300">
+                <strong>Attacker at 55 req/min:</strong> Draining {55 - N} tokens/min net. Bucket will empty in ~{Math.round(capacity / ((55 - N) / 60))}s.
+                {bucketEmpty ? ' BLOCKED — the attacker has been caught by the rate limiter!' : ` ${Math.round(tokens)} tokens remaining, blocking starts soon...`}
+              </p>
+            )}
+          </div>
+
+          {/* Stop button */}
+          <button onClick={() => setMode('idle')}
+            className="mt-3 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+            ■ Stop & Reset
+          </button>
+        </div>
+      ) : (
+        <div className="bg-slate-800/30 border border-dashed border-slate-700 rounded-xl p-8 text-center">
+          <Droplets className="w-10 h-10 text-slate-600 mx-auto mb-3" />
+          <p className="text-slate-400 mb-1">Click a scenario above to start the simulation</p>
+          <p className="text-xs text-slate-600">Watch how the token bucket handles different traffic patterns in real time</p>
+        </div>
+      )}
+
+      <style>{`
+        @keyframes slideIn {
+          from { transform: translateX(20px); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+      `}</style>
     </div>
   );
 }
