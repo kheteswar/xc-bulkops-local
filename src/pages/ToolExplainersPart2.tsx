@@ -11,7 +11,7 @@ import {
   TrendingUp, Filter, Settings, Cpu, Server, Bug, X,
   ChevronRight, Hash, Clock, Gauge,
 } from 'lucide-react';
-import { Slideshow, SlideTitle, FeatureCard, StepList } from '../components/Slideshow';
+import { Slideshow, SlideTitle, FeatureCard, StepList, IntroSlide } from '../components/Slideshow';
 import type { SlideDefinition } from '../components/Slideshow';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -19,6 +19,19 @@ import type { SlideDefinition } from '../components/Slideshow';
 // ═══════════════════════════════════════════════════════════════════
 
 const loadTesterSlides: SlideDefinition[] = [
+  /* Slide 0 - Intro */
+  { title: 'Intro', component: () => (
+    <IntroSlide
+      icon={Zap}
+      toolName="Load Tester"
+      tagline="Stress test any HTTP endpoint with real-time metrics"
+      what="Browser-based HTTP load generator that sends configurable request rates to any URL and measures response time, throughput, error rates, and Apdex scores in real time."
+      problem="You need a quick load test to validate rate limits, check origin capacity, or reproduce a performance issue — without installing external tools or setting up infrastructure."
+      who="Performance engineers, developers validating rate limits, and operations teams testing before production launches."
+      when="Before enabling rate limits (to verify thresholds), after deployments, and whenever you need to stress test an endpoint."
+    />
+  )},
+
   /* Slide 1 - Overview */
   { title: 'Overview', component: () => (
     <div>
@@ -297,6 +310,19 @@ export function LoadTesterExplainer() {
 // ═══════════════════════════════════════════════════════════════════
 
 const apiShieldSlides: SlideDefinition[] = [
+  /* Slide 0 - Intro */
+  { title: 'Intro', component: () => (
+    <IntroSlide
+      icon={Shield}
+      toolName="API Shield Advisor"
+      tagline="Guided API security assessment against OWASP API Security Top 10"
+      what="Scans your F5 XC HTTP LB configurations, discovers APIs, profiles traffic, and evaluates 90+ security controls mapped to the OWASP API Security Top 10 standard."
+      problem="APIs are your biggest attack surface but F5 XC has 90+ security controls across 11 domains. Without a guided assessment, you don't know which controls are active, which are missing, or where to start."
+      who="API security architects, compliance teams, and anyone responsible for API protection posture."
+      when="During initial API onboarding, quarterly security reviews, and before compliance audits."
+    />
+  )},
+
   /* Slide 1 - Overview */
   { title: 'Overview', component: () => (
     <div>
@@ -495,6 +521,19 @@ export function APIShieldExplainer() {
 // ═══════════════════════════════════════════════════════════════════
 
 const apiReportSlides: SlideDefinition[] = [
+  /* Slide 0 - Intro */
+  { title: 'Intro', component: () => (
+    <IntroSlide
+      icon={BarChart2}
+      toolName="API Report Dashboard"
+      tagline="API discovery stats, swagger parsing, and multi-LB endpoint inventory"
+      what="Aggregates API discovery data across multiple load balancers, parses associated Swagger/OpenAPI specifications, and produces a consolidated endpoint report with Excel export."
+      problem="Shadow APIs — endpoints discovered in traffic but not defined in any spec — are a blind spot. You need a single view of all discovered and documented APIs across your LBs."
+      who="API managers, security teams tracking API inventory, and developers documenting API surfaces."
+      when="After enabling API Discovery on LBs, during API inventory audits, and for ongoing shadow API detection."
+    />
+  )},
+
   /* Slide 1 - Overview */
   { title: 'Overview', component: () => (
     <div>
@@ -687,6 +726,19 @@ export function APIReportExplainer() {
 // ═══════════════════════════════════════════════════════════════════
 
 const socRoomSlides: SlideDefinition[] = [
+  /* Slide 0 - Intro */
+  { title: 'Intro', component: () => (
+    <IntroSlide
+      icon={Activity}
+      toolName="Live SOC Room"
+      tagline="Real-time security operations center with continuous monitoring"
+      what="Multi-room monitoring dashboard that continuously polls F5 XC for traffic metrics, security events, and anomalies. Each room monitors specific LBs with configurable polling intervals and threat detection."
+      problem="F5 XC's console doesn't provide a unified real-time SOC view. You need live dashboards combining traffic, errors, security events, bot activity, and automated anomaly detection in one place."
+      who="SOC analysts, security operations teams, and anyone responsible for real-time security monitoring."
+      when="Keep running continuously during business hours or 24/7 for critical applications."
+    />
+  )},
+
   /* Slide 1 - Overview */
   { title: 'Overview', component: () => (
     <div>
@@ -882,6 +934,19 @@ export function SOCRoomExplainer() {
 // ═══════════════════════════════════════════════════════════════════
 
 const prefixBuilderSlides: SlideDefinition[] = [
+  /* Slide 0 - Intro */
+  { title: 'Intro', component: () => (
+    <IntroSlide
+      icon={Grid3X3}
+      toolName="Prefix Builder"
+      tagline="Build IP prefix sets in bulk for firewall and service policies"
+      what="Creates F5 XC IP Prefix Set objects from pasted or uploaded IP lists. Validates IPv4/IPv6, auto-splits large lists across multiple sets, and optionally attaches them to service policies."
+      problem="Manually creating IP prefix sets with hundreds of IPs through the console is tedious. You need bulk creation with validation and optional policy attachment in one step."
+      who="Network security teams managing IP allow/deny lists, and operations teams setting up geo or IP-based access controls."
+      when="When building IP allowlists/denylists, during firewall rule setup, or when importing IP lists from external sources."
+    />
+  )},
+
   /* Slide 1 - Overview */
   { title: 'Overview', component: () => (
     <div>
@@ -1085,6 +1150,19 @@ export function PrefixBuilderExplainer() {
 // ═══════════════════════════════════════════════════════════════════
 
 const copyConfigSlides: SlideDefinition[] = [
+  /* Slide 0 - Intro */
+  { title: 'Intro', component: () => (
+    <IntroSlide
+      icon={Copy}
+      toolName="Copy Config"
+      tagline="Clone configuration objects across tenants or namespaces"
+      what="Copies alert receivers, alert policies, and CDN cache rules between F5 XC namespaces (same tenant) or tenants (different credentials) with preview and per-object status tracking."
+      problem="Standardising configurations across environments requires manually recreating objects. Cross-tenant copying requires API calls with different credentials. This tool automates both."
+      who="Operations teams managing multi-environment deployments, and managed service providers standardising configs across customer tenants."
+      when="During environment setup, tenant onboarding, and whenever you need config consistency across namespaces or tenants."
+    />
+  )},
+
   /* Slide 1 - Overview */
   { title: 'Overview', component: () => (
     <div>
@@ -1258,6 +1336,19 @@ export function CopyConfigExplainer() {
 // ═══════════════════════════════════════════════════════════════════
 
 const propertyViewerSlides: SlideDefinition[] = [
+  /* Slide 0 - Intro */
+  { title: 'Intro', component: () => (
+    <IntroSlide
+      icon={Layers}
+      toolName="Property Viewer"
+      tagline="Compare any property across all your config objects at a glance"
+      what="Extracts specific properties (WAF mode, TLS version, timeouts, etc.) from all objects of a chosen type across multiple namespaces, displaying them in a filterable table or card view."
+      problem="Checking a single setting (e.g., 'is HSTS enabled?') across 50+ load balancers requires opening each one individually in the console. This tool shows the answer for all LBs in one view."
+      who="Operations teams doing quick audits, compliance checks, and anyone who needs to compare a specific setting across many objects."
+      when="During compliance audits, before security reviews, and whenever you need a cross-object property check."
+    />
+  )},
+
   /* Slide 1 - Overview */
   { title: 'Overview', component: () => (
     <div>
@@ -1461,6 +1552,19 @@ export function PropertyViewerExplainer() {
 // ═══════════════════════════════════════════════════════════════════
 
 const httpLbForgeSlides: SlideDefinition[] = [
+  /* Slide 0 - Intro */
+  { title: 'Intro', component: () => (
+    <IntroSlide
+      icon={Hammer}
+      toolName="HTTP LB Forge"
+      tagline="Create multiple HTTP Load Balancers at scale from a CSV file"
+      what="Takes a CSV template with domain, origin, port, and type columns. Creates origin pools, WAF policies, and HTTP Load Balancers in bulk — including automatic TLS certificate discovery for HTTPS."
+      problem="Creating many similar LBs manually is time-consuming and error-prone. Each LB needs an origin pool, WAF policy, and TLS config. This tool does all three per LB from a single CSV row."
+      who="Operations teams provisioning multiple LBs during migrations, new customer onboarding, or environment setup."
+      when="During bulk LB provisioning, migration projects, and whenever you need to create multiple similar LBs."
+    />
+  )},
+
   /* Slide 1 - Overview */
   { title: 'Overview', component: () => (
     <div>
@@ -1764,6 +1868,19 @@ export function HttpLbForgeExplainer() {
 // ═══════════════════════════════════════════════════════════════════
 
 const configDumpSlides: SlideDefinition[] = [
+  /* Slide 0 - Intro */
+  { title: 'Intro', component: () => (
+    <IntroSlide
+      icon={Database}
+      toolName="Config Dump"
+      tagline="Export complete configurations with all dependencies resolved"
+      what="Selects objects by type and namespace, recursively fetches all child dependencies (origin pools, WAF policies, certs, health checks), and exports the complete tree as JSON, CSV, Excel, or PDF."
+      problem="F5 XC has no 'export everything' button. Configs span many object types with cross-references. You need a complete snapshot including all dependencies for backup, documentation, or audit."
+      who="Backup engineers, auditors needing config snapshots, and anyone documenting infrastructure."
+      when="Before major changes, during compliance audits, for disaster recovery documentation, and whenever you need a complete config backup."
+    />
+  )},
+
   /* Slide 1 - Overview */
   { title: 'Overview', component: () => (
     <div>

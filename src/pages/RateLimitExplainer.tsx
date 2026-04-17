@@ -76,46 +76,29 @@ function TokenBucketDemo() {
 
 function Slide1() {
   return (
-    <div>
-      <SlideTitle icon={Gauge} title="Rate Limit Advisor" subtitle="Data-driven rate limit recommendations for F5 XC HTTP Load Balancers" />
-      <div className="space-y-6 mt-8">
-        <p className="text-lg text-slate-300 leading-relaxed">
-          This tool analyses your real traffic and recommends the optimal <strong className="text-white">Number (N)</strong> and <strong className="text-white">Burst Multiplier (B)</strong> settings for F5 XC's per-user rate limiter — so you don't have to guess.
-        </p>
+    <div className="flex flex-col items-center text-center">
+      <div className="w-20 h-20 bg-blue-500/15 rounded-2xl flex items-center justify-center mb-6">
+        <Gauge className="w-10 h-10 text-blue-400" />
+      </div>
+      <h1 className="text-3xl font-bold text-slate-100 mb-2">Rate Limit Advisor</h1>
+      <p className="text-lg text-slate-400 mb-8 max-w-2xl">Data-driven rate limit recommendations for F5 XC HTTP Load Balancers — so you don't have to guess</p>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="w-5 h-5 text-blue-400" />
-              <h3 className="font-semibold text-blue-400">Phase 1: Weekly Baseline</h3>
-            </div>
-            <p className="text-sm text-slate-400">Probes the last <strong className="text-slate-200">7 days</strong> of traffic to understand weekly patterns, seasonality, and growth trends. ~14 lightweight API calls.</p>
-          </div>
-          <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <Zap className="w-5 h-5 text-emerald-400" />
-              <h3 className="font-semibold text-emerald-400">Phase 2: Deep Scan</h3>
-            </div>
-            <p className="text-sm text-slate-400">Fetches <strong className="text-slate-200">every raw log</strong> for your selected window (1h–24h). Builds exact per-user per-minute request counts.</p>
-          </div>
-          <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <Shield className="w-5 h-5 text-red-400" />
-              <h3 className="font-semibold text-red-400">Cleaning Filter</h3>
-            </div>
-            <p className="text-sm text-slate-400">Automatically removes WAF-blocked requests, malicious bots, policy denials, and high-risk IPs. Recommendations are based on <strong className="text-slate-200">clean legitimate traffic only</strong>.</p>
-          </div>
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-5">
-            <div className="flex items-center gap-2 mb-2">
-              <Users className="w-5 h-5 text-amber-400" />
-              <h3 className="font-semibold text-amber-400">Industry-Standard Formula</h3>
-            </div>
-            <p className="text-sm text-slate-400">Uses <strong className="text-slate-200">P95 of per-user peaks × 1.5 safety margin</strong> — the baseline recommended by OWASP, AWS, Google Cloud, and Cloudflare.</p>
-          </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-3xl text-left">
+        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-5">
+          <div className="text-xs text-blue-400 font-semibold uppercase tracking-wider mb-2">What is it?</div>
+          <p className="text-sm text-slate-300 leading-relaxed">Analyses real traffic on your HTTP Load Balancers and recommends the optimal Number (N) and Burst Multiplier (B) settings for F5 XC's per-user rate limiter.</p>
         </div>
-
-        <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 text-sm text-slate-400 text-center">
-          Select your namespace, load balancer, and scan window → click <strong className="text-slate-200">Analyze</strong> → get your N, B, and an impact simulator to validate before deploying.
+        <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-5">
+          <div className="text-xs text-red-400 font-semibold uppercase tracking-wider mb-2">What problem does it solve?</div>
+          <p className="text-sm text-slate-300 leading-relaxed">Setting rate limits by guesswork leads to either blocking legitimate users (too low) or failing to catch attackers (too high). This tool sizes limits from actual per-user traffic data.</p>
+        </div>
+        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-5">
+          <div className="text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-2">Who should use it?</div>
+          <p className="text-sm text-slate-300 leading-relaxed">Security engineers configuring rate limits, operations teams protecting applications, and anyone deploying F5 XC rate limiting for the first time.</p>
+        </div>
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-5">
+          <div className="text-xs text-amber-400 font-semibold uppercase tracking-wider mb-2">When to use it?</div>
+          <p className="text-sm text-slate-300 leading-relaxed">Before enabling rate limits on a new LB, after significant traffic changes, and monthly to verify your limits still match your traffic patterns.</p>
         </div>
       </div>
     </div>

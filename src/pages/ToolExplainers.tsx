@@ -11,7 +11,7 @@ import {
   TrendingUp, Filter, Settings, Cpu, Server, Bug, X, ChevronRight,
   Hash, Clock, Gauge,
 } from 'lucide-react';
-import { Slideshow, SlideTitle, FeatureCard, StepList } from '../components/Slideshow';
+import { Slideshow, SlideTitle, FeatureCard, StepList, IntroSlide } from '../components/Slideshow';
 import type { SlideDefinition } from '../components/Slideshow';
 
 // ═══════════════════════════════════════════════════════════════════
@@ -19,7 +19,19 @@ import type { SlideDefinition } from '../components/Slideshow';
 // ═══════════════════════════════════════════════════════════════════
 
 const wafScannerSlides: SlideDefinition[] = [
-  /* ── Slide 1: Overview ── */
+  /* ── Intro Slide ── */
+  { title: 'Introduction', component: () => (
+    <IntroSlide
+      icon={Search}
+      toolName="WAF Status Scanner"
+      tagline="See which load balancers have WAF protection — and which don't"
+      what="Scans all HTTP Load Balancers across your selected namespaces and reports the WAF enforcement status of each one, including per-route overrides."
+      problem="There's no built-in way to see at a glance which LBs are in Blocking mode, which are in Monitoring, and which have no WAF at all. Security gaps stay hidden."
+      who="Security engineers, compliance teams, and anyone doing periodic WAF posture checks."
+      when="After initial deployment, after config changes, and as a regular weekly/monthly audit."
+    />
+  )},
+  /* ── Slide 2: Overview ── */
   { title: 'WAF Status Scanner', component: () => (
     <div>
       <SlideTitle icon={Search} title="WAF Status Scanner" subtitle="Audit WAF protection across all your load balancers in seconds" />
@@ -161,7 +173,19 @@ export function WAFScannerExplainer() { return <Slideshow slides={wafScannerSlid
 // ═══════════════════════════════════════════════════════════════════
 
 const securityAuditorSlides: SlideDefinition[] = [
-  /* ── Slide 1: Overview ── */
+  /* ── Intro Slide ── */
+  { title: 'Introduction', component: () => (
+    <IntroSlide
+      icon={Shield}
+      toolName="Security Auditor"
+      tagline="Automated security posture assessment against 50+ best-practice rules"
+      what="Audits your F5 XC configuration objects against a built-in ruleset covering TLS, WAF, origins, bot/DDoS, access control, and logging. Produces a scored report with remediation steps."
+      problem="Manually checking dozens of security settings across multiple namespaces is slow and error-prone. Misconfigurations stay undetected until an incident."
+      who="Security architects, platform engineers, and compliance teams needing audit evidence."
+      when="Before production launches, after major config changes, and as a regular compliance check."
+    />
+  )},
+  /* ── Slide 2: Overview ── */
   { title: 'Security Auditor', component: () => (
     <div>
       <SlideTitle icon={Shield} title="Security Auditor" subtitle="Comprehensive security posture assessment against 50+ best-practice rules" />
@@ -374,7 +398,19 @@ export function SecurityAuditorExplainer() { return <Slideshow slides={securityA
 // ═══════════════════════════════════════════════════════════════════
 
 const fpAnalyzerSlides: SlideDefinition[] = [
-  /* ── Slide 1: Overview ── */
+  /* ── Intro Slide ── */
+  { title: 'Introduction', component: () => (
+    <IntroSlide
+      icon={ShieldAlert}
+      toolName="FP Analyzer"
+      tagline="Find and fix WAF false positives without guessing"
+      what="Analyses WAF security events using a 7-signal scoring engine to classify each signature hit as a likely false positive or true positive, then generates WAF exclusion rules."
+      problem="WAF produces too many alerts. Manually reviewing each one wastes hours. Disabling signatures blindly creates security gaps. You need a data-driven way to tell real attacks from noise."
+      who="SOC analysts, WAF administrators, and security engineers tuning WAF policies."
+      when="After enabling WAF on a new LB, when alert volume is high, or when users report being blocked."
+    />
+  )},
+  /* ── Slide 2: Overview ── */
   { title: 'FP Analyzer', component: () => (
     <div>
       <SlideTitle icon={ShieldAlert} title="False Positive Analyzer" subtitle="Detect and fix WAF false positives with 7-signal scoring" />
@@ -623,7 +659,19 @@ export function FPAnalyzerExplainer() { return <Slideshow slides={fpAnalyzerSlid
 // ═══════════════════════════════════════════════════════════════════
 
 const ddosAdvisorSlides: SlideDefinition[] = [
-  /* ── Slide 1: Overview ── */
+  /* ── Intro Slide ── */
+  { title: 'Introduction', component: () => (
+    <IntroSlide
+      icon={Shield}
+      toolName="DDoS Advisor"
+      tagline="Data-driven L7 DDoS protection settings based on your actual traffic"
+      what="Analyses real traffic patterns on your HTTP Load Balancers and recommends optimal L7 DDoS protection thresholds, comparing your current config against evidence-based recommendations."
+      problem="Default DDoS thresholds are generic. Too high = no protection. Too low = false positives on legitimate traffic spikes. You need thresholds calibrated to your actual traffic."
+      who="Security engineers configuring or tuning L7 DDoS protection on HTTP Load Balancers."
+      when="Before enabling DDoS protection, after traffic pattern changes, and quarterly for recalibration."
+    />
+  )},
+  /* ── Slide 2: Overview ── */
   { title: 'DDoS Advisor', component: () => (
     <div>
       <SlideTitle icon={Shield} title="DDoS Settings Advisor" subtitle="Analyse traffic patterns and recommend tuned L7 DDoS protection" />
@@ -859,7 +907,19 @@ export function DDoSAdvisorExplainer() { return <Slideshow slides={ddosAdvisorSl
 // ═══════════════════════════════════════════════════════════════════
 
 const configViewerSlides: SlideDefinition[] = [
-  /* ── Slide 1: Overview ── */
+  /* ── Intro Slide ── */
+  { title: 'Introduction', component: () => (
+    <IntroSlide
+      icon={Grid3X3}
+      toolName="Config Viewer"
+      tagline="See your entire Load Balancer configuration in one view"
+      what="Visualises the complete configuration hierarchy of HTTP and CDN Load Balancers — routes, origin pools, WAF policies, certificates, health checks, service policies, and all dependencies."
+      problem="F5 XC LB configs reference many nested objects. Understanding what's connected to what requires clicking through dozens of console pages. This tool shows everything at once."
+      who="Platform engineers, architects, and anyone troubleshooting LB configuration issues."
+      when="When onboarding to a new LB, debugging routing issues, or reviewing config before changes."
+    />
+  )},
+  /* ── Slide 2: Overview ── */
   { title: 'Config Viewer', component: () => (
     <div>
       <SlideTitle icon={Grid3X3} title="Config Viewer" subtitle="Interactive map of Load Balancer dependencies and settings" />
@@ -1002,7 +1062,19 @@ export function ConfigViewerExplainer() { return <Slideshow slides={configViewer
 // ═══════════════════════════════════════════════════════════════════
 
 const configComparatorSlides: SlideDefinition[] = [
-  /* ── Slide 1: Overview ── */
+  /* ── Intro Slide ── */
+  { title: 'Introduction', component: () => (
+    <IntroSlide
+      icon={Split}
+      toolName="Config Comparator"
+      tagline="Compare configurations across namespaces or tenants to find differences"
+      what="Compares HTTP and CDN Load Balancer configurations between two namespaces (same tenant) or two tenants (different credentials), showing matched, different, and orphan objects with deep property-level diffs."
+      problem="After migrations or config changes, you need to verify parity between environments. Manual comparison across dozens of objects is impractical."
+      who="Change management teams, migration engineers, and operations teams managing multi-environment deployments."
+      when="Before and after migrations, during environment promotion (dev→staging→prod), and for drift detection."
+    />
+  )},
+  /* ── Slide 2: Overview ── */
   { title: 'Config Comparator', component: () => (
     <div>
       <SlideTitle icon={Split} title="Config Comparator" subtitle="Detect configuration drift across namespaces and tenants" />
@@ -1151,7 +1223,19 @@ export function ConfigComparatorExplainer() { return <Slideshow slides={configCo
 // ═══════════════════════════════════════════════════════════════════
 
 const dependencyMapSlides: SlideDefinition[] = [
-  /* ── Slide 1: Overview ── */
+  /* ── Intro Slide ── */
+  { title: 'Introduction', component: () => (
+    <IntroSlide
+      icon={GitBranch}
+      toolName="Config Explorer"
+      tagline="Explore object dependencies with graph, table, and tree views"
+      what="Recursively discovers all parent-child relationships between F5 XC configuration objects and displays them in three interactive views: dependency table, hierarchy tree, and force-directed graph."
+      problem="F5 XC objects reference each other extensively. When you change or delete one object, you need to know what depends on it. The console doesn't show cross-object dependencies."
+      who="Engineers debugging broken references, architects mapping config structure, and teams planning config changes."
+      when="Before deleting or modifying shared objects, when mapping existing infrastructure, or when troubleshooting broken references."
+    />
+  )},
+  /* ── Slide 2: Overview ── */
   { title: 'Config Explorer', component: () => (
     <div>
       <SlideTitle icon={GitBranch} title="Config Explorer" subtitle="3 view modes for visualising object relationships and dependencies" />
@@ -1338,7 +1422,19 @@ export function DependencyMapExplainer() { return <Slideshow slides={dependencyM
 // ═══════════════════════════════════════════════════════════════════
 
 const httpSanitySlides: SlideDefinition[] = [
-  /* ── Slide 1: Overview ── */
+  /* ── Intro Slide ── */
+  { title: 'Introduction', component: () => (
+    <IntroSlide
+      icon={Activity}
+      toolName="HTTP Sanity Checker"
+      tagline="Verify your F5 XC deployment matches the live site before DNS cutover"
+      what="Sends requests through public DNS (live path) and directly to F5 XC via IP spoofing (new path), then compares status codes, headers, body content, and TLS certificates side by side."
+      problem="During CDN or proxy migrations, you need to verify the new path returns identical responses before switching DNS. Differences in headers, body, or certificates can cause outages."
+      who="Migration engineers, CDN cutover teams, and operations teams validating new deployments."
+      when="Before DNS cutover to F5 XC, after origin changes, or whenever you need to verify response consistency."
+    />
+  )},
+  /* ── Slide 2: Overview ── */
   { title: 'HTTP Sanity Checker', component: () => (
     <div>
       <SlideTitle icon={Activity} title="HTTP Sanity Checker" subtitle="Compare live vs. spoofed responses to validate your F5 XC deployment" />
@@ -1556,7 +1652,19 @@ export function HttpSanityExplainer() { return <Slideshow slides={httpSanitySlid
 // ═══════════════════════════════════════════════════════════════════
 
 const logAnalyzerSlides: SlideDefinition[] = [
-  /* ── Slide 1: Overview ── */
+  /* ── Intro Slide ── */
+  { title: 'Introduction', component: () => (
+    <IntroSlide
+      icon={BarChart2}
+      toolName="Log Analyzer"
+      tagline="Query, filter, and analyse F5 XC access logs and security events"
+      what="General-purpose analytics dashboard for F5 XC access logs and security events with field-level distributions, time series, custom filters, cross-field breakdowns, and multi-format export."
+      problem="Raw F5 XC logs are hard to query without external tools. You need quick traffic investigation — who's sending what, response code distributions, error patterns, top talkers — without setting up a SIEM."
+      who="Operations teams, security analysts, and anyone investigating traffic patterns or incidents."
+      when="During incident investigation, traffic analysis, performance troubleshooting, or regular operational monitoring."
+    />
+  )},
+  /* ── Slide 2: Overview ── */
   { title: 'Log Analyzer', component: () => (
     <div>
       <SlideTitle icon={BarChart2} title="Log Analyzer" subtitle="Flexible access and security log analytics with custom filters and breakdowns" />

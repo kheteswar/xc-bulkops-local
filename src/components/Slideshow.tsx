@@ -78,6 +78,46 @@ export function Slideshow({ slides, toolName, toolRoute, toolIcon: ToolIcon }: S
   );
 }
 
+/** Intro slide — always the first slide of every tool explainer */
+export function IntroSlide({ icon: Icon, toolName, tagline, what, problem, who, when }: {
+  icon: LucideIcon;
+  toolName: string;
+  tagline: string;
+  what: string;
+  problem: string;
+  who: string;
+  when: string;
+}) {
+  return (
+    <div className="flex flex-col items-center text-center">
+      <div className="w-20 h-20 bg-blue-500/15 rounded-2xl flex items-center justify-center mb-6">
+        <Icon className="w-10 h-10 text-blue-400" />
+      </div>
+      <h1 className="text-3xl font-bold text-slate-100 mb-2">{toolName}</h1>
+      <p className="text-lg text-slate-400 mb-8 max-w-2xl">{tagline}</p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 w-full max-w-3xl text-left">
+        <div className="bg-blue-500/5 border border-blue-500/20 rounded-xl p-5">
+          <div className="text-xs text-blue-400 font-semibold uppercase tracking-wider mb-2">What is it?</div>
+          <p className="text-sm text-slate-300 leading-relaxed">{what}</p>
+        </div>
+        <div className="bg-red-500/5 border border-red-500/20 rounded-xl p-5">
+          <div className="text-xs text-red-400 font-semibold uppercase tracking-wider mb-2">What problem does it solve?</div>
+          <p className="text-sm text-slate-300 leading-relaxed">{problem}</p>
+        </div>
+        <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-5">
+          <div className="text-xs text-emerald-400 font-semibold uppercase tracking-wider mb-2">Who should use it?</div>
+          <p className="text-sm text-slate-300 leading-relaxed">{who}</p>
+        </div>
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-5">
+          <div className="text-xs text-amber-400 font-semibold uppercase tracking-wider mb-2">When to use it?</div>
+          <p className="text-sm text-slate-300 leading-relaxed">{when}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Reusable slide title with icon */
 export function SlideTitle({ icon: Icon, title, subtitle }: { icon: LucideIcon; title: string; subtitle: string }) {
   return (

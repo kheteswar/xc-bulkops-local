@@ -110,10 +110,10 @@ export function ToolCard({
         <Link
           to={EXPLAINER_ROUTES[to]}
           onClick={e => e.stopPropagation()}
-          className="absolute bottom-4 right-14 z-10 flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 border border-transparent hover:border-blue-500/30 transition-all"
+          title="Learn about this tool"
+          className="absolute bottom-5 right-12 z-10 p-1.5 rounded-full text-slate-600 hover:text-blue-400 hover:bg-blue-500/10 transition-all"
         >
-          <HelpCircle className="w-3.5 h-3.5" />
-          <span>How it works</span>
+          <HelpCircle className="w-4 h-4" />
         </Link>
       )}
 
