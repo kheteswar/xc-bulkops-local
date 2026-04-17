@@ -9,206 +9,276 @@ import {
 // TOKEN BUCKET ANIMATION
 // ═══════════════════════════════════════════════════════════════════
 
+interface MinuteLog {
+  minute: number;
+  incoming: number;
+  refilled: number;
+  consumed: number;
+  bucketBefore: number;
+  bucketAfter: number;
+  allowed: number;
+  blocked: number;
+}
+
 function TokenBucketDemo() {
-  const [tokens, setTokens] = useState(80);
-  const [blocked, setBlocked] = useState(0);
-  const [allowed, setAllowed] = useState(0);
-  const [elapsed, setElapsed] = useState(0);
   const [mode, setMode] = useState<'idle' | 'normal' | 'burst' | 'attack'>('idle');
-  const [incomingDots, setIncomingDots] = useState<Array<{ id: number; blocked: boolean }>>([]);
-  const dotIdRef = useRef(0);
+  const [currentMinute, setCurrentMinute] = useState(0);
+  const [isPlaying, setIsPlaying] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval>>();
 
   const N = 40, B = 2, capacity = N * B;
+  const TOTAL_MINUTES = 5;
   const incoming = mode === 'normal' ? 20 : mode === 'burst' ? 70 : mode === 'attack' ? 55 : 0;
-  const modeColor = mode === 'normal' ? 'emerald' : mode === 'burst' ? 'amber' : mode === 'attack' ? 'red' : 'slate';
-  const modeLabel = mode === 'normal' ? 'Normal User' : mode === 'burst' ? 'Page Load Burst' : mode === 'attack' ? 'Sustained Attacker' : '';
 
+  // Pre-compute all 5 minutes of the simulation
+  const minutes: MinuteLog[] = (() => {
+    if (mode === 'idle') return [];
+    const log: MinuteLog[] = [];
+    let bucket = capacity;
+    for (let m = 1; m <= TOTAL_MINUTES; m++) {
+      const before = bucket;
+      const refilled = Math.min(N, capacity - bucket); // tokens added (capped at capacity)
+      bucket = Math.min(bucket + N, capacity);          // refill first
+      const consumed = Math.min(incoming, bucket);       // then consume
+      const blocked = Math.max(0, incoming - bucket);
+      bucket = Math.max(0, bucket - incoming);
+      log.push({ minute: m, incoming, refilled: Math.round(refilled), consumed: Math.round(consumed), bucketBefore: Math.round(before), bucketAfter: Math.round(bucket), allowed: Math.round(consumed), blocked: Math.round(blocked) });
+    }
+    return log;
+  })();
+
+  // Auto-play: advance one minute every 2 seconds
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
-    if (mode === 'idle') { setTokens(capacity); setBlocked(0); setAllowed(0); setElapsed(0); setIncomingDots([]); return; }
-    setBlocked(0); setAllowed(0); setElapsed(0); setIncomingDots([]);
-
+    if (!isPlaying || mode === 'idle') return;
     intervalRef.current = setInterval(() => {
-      setElapsed(e => e + 1);
-      setTokens(prev => {
-        const refilled = Math.min(prev + N / 10, capacity);
-        const consumed = incoming / 10;
-        const isBlocked = refilled < consumed;
-
-        // Spawn visual dot
-        const id = ++dotIdRef.current;
-        setIncomingDots(dots => [...dots.slice(-12), { id, blocked: isBlocked }]);
-
-        if (isBlocked) {
-          setBlocked(b => b + Math.round(consumed - refilled));
-          return Math.max(refilled - consumed, 0);
-        }
-        setAllowed(a => a + Math.round(consumed));
-        return Math.min(refilled - consumed, capacity);
+      setCurrentMinute(m => {
+        if (m >= TOTAL_MINUTES) { setIsPlaying(false); return TOTAL_MINUTES; }
+        return m + 1;
       });
-    }, 100);
+    }, 2000);
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [mode, capacity, incoming]);
+  }, [isPlaying, mode]);
 
-  const fillPct = Math.round((tokens / capacity) * 100);
+  const startScenario = (s: typeof mode) => {
+    setMode(s); setCurrentMinute(0); setIsPlaying(true);
+  };
+  const reset = () => { setMode('idle'); setCurrentMinute(0); setIsPlaying(false); };
+  const togglePause = () => setIsPlaying(p => !p);
+  const stepForward = () => setCurrentMinute(m => Math.min(m + 1, TOTAL_MINUTES));
+  const stepBack = () => setCurrentMinute(m => Math.max(m - 1, 0));
+
+  const current = currentMinute > 0 ? minutes[currentMinute - 1] : null;
+  const bucketLevel = current ? current.bucketAfter : capacity;
+  const fillPct = Math.round((bucketLevel / capacity) * 100);
   const fillColor = fillPct > 50 ? 'bg-emerald-500' : fillPct > 20 ? 'bg-amber-500' : 'bg-red-500';
-  const bucketEmpty = tokens <= 2;
-  const elapsedSec = (elapsed / 10).toFixed(1);
-  const netPerTick = incoming / 10 - N / 10;
-  const timeToEmpty = netPerTick > 0 ? Math.ceil(tokens / netPerTick / 10) : Infinity;
+  const totalAllowed = minutes.slice(0, currentMinute).reduce((s, m) => s + m.allowed, 0);
+  const totalBlocked = minutes.slice(0, currentMinute).reduce((s, m) => s + m.blocked, 0);
+
+  const modeColors = { normal: 'emerald', burst: 'amber', attack: 'red', idle: 'slate' } as const;
+  const color = modeColors[mode];
 
   return (
     <div>
-      {/* Scenario buttons */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      {/* Scenario cards */}
+      <div className="grid grid-cols-3 gap-3 mb-5">
         {([
-          ['normal', 'Normal User', '20 req/min', 'emerald', 'User browsing normally'],
-          ['burst', 'Page Load Burst', '70 req/min', 'amber', 'SPA loading many resources'],
-          ['attack', 'Sustained Attacker', '55 req/min', 'red', 'Scraper hammering your API'],
-        ] as const).map(([id, label, rate, color, desc]) => (
-          <button key={id} onClick={() => setMode(mode === id ? 'idle' : id)}
-            className={`text-left p-4 rounded-xl border-2 transition-all ${
-              mode === id
-                ? `border-${color}-500 bg-${color}-500/15`
-                : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
+          ['normal', 'Normal User', '20 req/min', 'emerald', 'Browsing at steady pace'] as const,
+          ['burst', 'Page Load Burst', '70 req/min', 'amber', 'SPA fires 70 calls on load'] as const,
+          ['attack', 'Sustained Attacker', '55 req/min', 'red', 'Scraper above the rate limit'] as const,
+        ]).map(([id, label, rate, c, desc]) => (
+          <button key={id} onClick={() => startScenario(id)}
+            className={`text-left p-3 rounded-xl border-2 transition-all ${
+              mode === id ? `border-${c}-500 bg-${c}-500/15` : 'border-slate-700 bg-slate-800/50 hover:border-slate-600'
             }`}>
-            <div className={`text-sm font-bold ${mode === id ? `text-${color}-400` : 'text-slate-200'}`}>{label}</div>
-            <div className={`text-lg font-mono font-bold mt-1 ${mode === id ? `text-${color}-400` : 'text-slate-400'}`}>{rate}</div>
-            <div className="text-xs text-slate-500 mt-1">{desc}</div>
+            <div className={`text-sm font-bold ${mode === id ? `text-${c}-400` : 'text-slate-200'}`}>{label}</div>
+            <div className={`text-base font-mono font-bold mt-0.5 ${mode === id ? `text-${c}-400` : 'text-slate-400'}`}>{rate}</div>
+            <div className="text-[11px] text-slate-500 mt-0.5">{desc}</div>
           </button>
         ))}
       </div>
 
+      {/* Config bar */}
+      <div className="flex items-center gap-4 mb-5 text-xs">
+        <div className="flex items-center gap-2 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
+          <span className="text-slate-500">Rate Limit (N):</span>
+          <span className="font-bold text-blue-400 font-mono">{N}/min</span>
+        </div>
+        <div className="flex items-center gap-2 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
+          <span className="text-slate-500">Burst (B):</span>
+          <span className="font-bold text-amber-400 font-mono">{B}×</span>
+        </div>
+        <div className="flex items-center gap-2 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
+          <span className="text-slate-500">Bucket Capacity:</span>
+          <span className="font-bold text-emerald-400 font-mono">{capacity} tokens</span>
+        </div>
+        <div className="flex items-center gap-2 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
+          <span className="text-slate-500">Refill:</span>
+          <span className="font-bold text-emerald-400 font-mono">+{N} tokens/min</span>
+        </div>
+      </div>
+
       {mode !== 'idle' ? (
-        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-6">
-          {/* Header with timer */}
+        <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-5">
+          {/* Playback controls */}
           <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <div className={`w-3 h-3 rounded-full bg-${modeColor}-500 animate-pulse`} />
-              <span className={`text-sm font-semibold text-${modeColor}-400`}>{modeLabel}</span>
-              <span className="text-slate-500">·</span>
-              <span className="text-sm text-slate-400 font-mono">{incoming} req/min incoming</span>
+            <div className="flex items-center gap-2">
+              <button onClick={stepBack} disabled={currentMinute === 0}
+                className="px-2 py-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 text-slate-300 rounded text-xs">⏮ Prev</button>
+              <button onClick={togglePause}
+                className={`px-3 py-1 rounded text-xs font-medium ${isPlaying ? 'bg-amber-600 text-white' : 'bg-emerald-600 text-white'}`}>
+                {isPlaying ? '⏸ Pause' : '▶ Play'}
+              </button>
+              <button onClick={stepForward} disabled={currentMinute >= TOTAL_MINUTES}
+                className="px-2 py-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-30 text-slate-300 rounded text-xs">Next ⏭</button>
+              <button onClick={reset}
+                className="px-2 py-1 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded text-xs">■ Reset</button>
             </div>
-            <div className="flex items-center gap-2 bg-slate-900/50 rounded-lg px-3 py-1.5">
-              <Clock className="w-3.5 h-3.5 text-slate-500" />
-              <span className="text-sm font-mono text-slate-300">{elapsedSec}s</span>
-            </div>
-          </div>
-
-          {/* Main visualization: Incoming → Bucket → Output */}
-          <div className="flex items-center gap-4 mb-6">
-            {/* Incoming traffic stream */}
-            <div className="flex-1">
-              <div className="text-xs text-slate-500 mb-2 text-center">Incoming Requests</div>
-              <div className="h-16 bg-slate-900/50 rounded-lg flex items-center justify-end px-2 gap-1 overflow-hidden">
-                {incomingDots.map(dot => (
-                  <div key={dot.id}
-                    className={`w-3 h-3 rounded-full flex-shrink-0 transition-all duration-300 ${
-                      dot.blocked ? 'bg-red-500 opacity-60' : `bg-${modeColor}-500`
-                    }`}
-                    style={{ animation: 'slideIn 0.3s ease-out' }} />
-                ))}
-                <div className={`text-lg font-bold text-${modeColor}-400 ml-2`}>→</div>
-              </div>
-            </div>
-
-            {/* Token Bucket */}
-            <div className="flex flex-col items-center flex-shrink-0">
-              <div className="text-xs text-emerald-400 font-semibold mb-1 animate-pulse">+{N}/min refill</div>
-              <div className={`relative w-24 h-32 border-2 rounded-b-xl overflow-hidden bg-slate-900 ${
-                bucketEmpty ? 'border-red-500' : 'border-slate-500'
-              }`}>
-                <div className={`absolute bottom-0 left-0 right-0 transition-all duration-200 ${fillColor}`}
-                  style={{ height: `${fillPct}%` }} />
-                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <span className="text-2xl font-bold text-white drop-shadow-lg">{Math.round(tokens)}</span>
-                  <span className="text-[9px] text-slate-400">/ {capacity}</span>
-                </div>
-              </div>
-              <div className="text-xs text-slate-500 mt-1">Token Bucket</div>
-            </div>
-
-            {/* Output: Allowed vs Blocked */}
-            <div className="flex-1">
-              <div className="text-xs text-slate-500 mb-2 text-center">Output</div>
-              <div className="h-16 grid grid-rows-2 gap-1">
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg flex items-center px-3">
-                  <Check className="w-3.5 h-3.5 text-emerald-400 mr-2" />
-                  <span className="text-xs text-emerald-400 font-medium">Allowed</span>
-                  <span className="text-sm font-bold text-emerald-400 ml-auto font-mono">{allowed}</span>
-                </div>
-                <div className={`border rounded-lg flex items-center px-3 ${
-                  blocked > 0 ? 'bg-red-500/10 border-red-500/20' : 'bg-slate-900/30 border-slate-700'
-                }`}>
-                  <X className={`w-3.5 h-3.5 mr-2 ${blocked > 0 ? 'text-red-400' : 'text-slate-600'}`} />
-                  <span className={`text-xs font-medium ${blocked > 0 ? 'text-red-400' : 'text-slate-600'}`}>Blocked</span>
-                  <span className={`text-sm font-bold ml-auto font-mono ${blocked > 0 ? 'text-red-400' : 'text-slate-600'}`}>{blocked}</span>
-                </div>
-              </div>
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-slate-500" />
+              <span className="font-mono text-sm text-slate-300">Minute {currentMinute} / {TOTAL_MINUTES}</span>
             </div>
           </div>
 
-          {/* Live stats bar */}
-          <div className="grid grid-cols-4 gap-3">
-            <div className="bg-slate-900/50 rounded-lg p-3 text-center">
-              <div className="text-[10px] text-slate-500 uppercase">Bucket Level</div>
-              <div className={`text-lg font-bold font-mono ${fillPct > 50 ? 'text-emerald-400' : fillPct > 20 ? 'text-amber-400' : 'text-red-400'}`}>{fillPct}%</div>
-            </div>
-            <div className="bg-slate-900/50 rounded-lg p-3 text-center">
-              <div className="text-[10px] text-slate-500 uppercase">Net Drain</div>
-              <div className={`text-lg font-bold font-mono ${incoming > N ? 'text-red-400' : 'text-emerald-400'}`}>
-                {incoming > N ? `-${incoming - N}` : `+${N - incoming}`}/min
+          {/* Timeline progress bar */}
+          <div className="flex items-center gap-1 mb-5">
+            {Array.from({ length: TOTAL_MINUTES }, (_, i) => {
+              const m = minutes[i];
+              const isActive = i < currentMinute;
+              const isCurrent = i === currentMinute - 1;
+              const wasBlocked = m && m.blocked > 0;
+              return (
+                <button key={i} onClick={() => { setCurrentMinute(i + 1); setIsPlaying(false); }}
+                  className={`flex-1 h-8 rounded-lg border-2 flex items-center justify-center text-xs font-mono font-bold transition-all ${
+                    isCurrent ? `border-${color}-500 bg-${color}-500/20 text-${color}-400` :
+                    isActive ? (wasBlocked ? 'border-red-500/50 bg-red-500/10 text-red-400' : 'border-emerald-500/50 bg-emerald-500/10 text-emerald-400') :
+                    'border-slate-700 bg-slate-900/30 text-slate-600'
+                  }`}>
+                  Min {i + 1}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Main visualization */}
+          <div className="grid grid-cols-3 gap-4 mb-4">
+            {/* Incoming */}
+            <div className="bg-slate-900/50 rounded-xl p-4">
+              <div className="text-xs text-slate-500 uppercase mb-3 text-center">Incoming</div>
+              <div className="flex flex-col items-center">
+                <div className={`text-3xl font-bold font-mono text-${color}-400`}>{current ? current.incoming : '—'}</div>
+                <div className="text-xs text-slate-500 mt-1">requests this minute</div>
+                {current && (
+                  <div className="mt-3 w-full space-y-1">
+                    {Array.from({ length: Math.min(current.incoming, 10) }, (_, i) => (
+                      <div key={i} className={`h-1.5 rounded-full ${i < Math.min(current.allowed, 10) ? `bg-${color}-500` : 'bg-red-500'}`}
+                        style={{ width: `${Math.min(100, (i + 1) * 10)}%`, animation: `slideIn ${0.1 * i}s ease-out` }} />
+                    ))}
+                    {current.incoming > 10 && <div className="text-[10px] text-slate-600 text-center">+{current.incoming - 10} more</div>}
+                  </div>
+                )}
               </div>
             </div>
-            <div className="bg-slate-900/50 rounded-lg p-3 text-center">
-              <div className="text-[10px] text-slate-500 uppercase">Time to Empty</div>
-              <div className={`text-lg font-bold font-mono ${timeToEmpty < 10 ? 'text-red-400' : timeToEmpty === Infinity ? 'text-emerald-400' : 'text-amber-400'}`}>
-                {timeToEmpty === Infinity ? '∞' : `~${timeToEmpty}s`}
+
+            {/* Bucket */}
+            <div className="bg-slate-900/50 rounded-xl p-4">
+              <div className="text-xs text-slate-500 uppercase mb-3 text-center">Token Bucket</div>
+              <div className="flex flex-col items-center">
+                <div className={`relative w-full h-28 border-2 rounded-b-xl overflow-hidden bg-slate-950 ${bucketLevel <= 0 ? 'border-red-500' : 'border-slate-600'}`}>
+                  <div className={`absolute bottom-0 left-0 right-0 transition-all duration-700 ${fillColor}`}
+                    style={{ height: `${fillPct}%` }} />
+                  <div className="absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-2xl font-bold text-white drop-shadow-lg">{bucketLevel}</span>
+                    <span className="text-[10px] text-slate-400">/ {capacity} tokens</span>
+                  </div>
+                </div>
+                {current && (
+                  <div className="mt-2 w-full text-[11px] space-y-0.5">
+                    <div className="flex justify-between"><span className="text-slate-500">Before:</span><span className="text-slate-300 font-mono">{current.bucketBefore}</span></div>
+                    <div className="flex justify-between"><span className="text-emerald-500">+ Refill:</span><span className="text-emerald-400 font-mono">+{current.refilled}</span></div>
+                    <div className="flex justify-between"><span className={`text-${color}-500`}>− Used:</span><span className={`text-${color}-400 font-mono`}>−{current.consumed}</span></div>
+                    <div className="flex justify-between border-t border-slate-700 pt-0.5"><span className="text-slate-400 font-medium">After:</span><span className="text-white font-mono font-bold">{current.bucketAfter}</span></div>
+                  </div>
+                )}
               </div>
             </div>
-            <div className="bg-slate-900/50 rounded-lg p-3 text-center">
-              <div className="text-[10px] text-slate-500 uppercase">Status</div>
-              <div className={`text-lg font-bold ${bucketEmpty ? 'text-red-400 animate-pulse' : 'text-emerald-400'}`}>
-                {bucketEmpty ? '🚫 BLOCKED' : '✓ PASSING'}
+
+            {/* Result */}
+            <div className="bg-slate-900/50 rounded-xl p-4">
+              <div className="text-xs text-slate-500 uppercase mb-3 text-center">This Minute</div>
+              <div className="space-y-3">
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 text-center">
+                  <Check className="w-4 h-4 text-emerald-400 mx-auto mb-1" />
+                  <div className="text-2xl font-bold text-emerald-400 font-mono">{current ? current.allowed : '—'}</div>
+                  <div className="text-[10px] text-emerald-400/70">allowed through</div>
+                </div>
+                <div className={`border rounded-lg p-3 text-center ${current && current.blocked > 0 ? 'bg-red-500/10 border-red-500/20' : 'bg-slate-800/30 border-slate-700'}`}>
+                  <X className={`w-4 h-4 mx-auto mb-1 ${current && current.blocked > 0 ? 'text-red-400' : 'text-slate-600'}`} />
+                  <div className={`text-2xl font-bold font-mono ${current && current.blocked > 0 ? 'text-red-400' : 'text-slate-600'}`}>{current ? current.blocked : '—'}</div>
+                  <div className={`text-[10px] ${current && current.blocked > 0 ? 'text-red-400/70' : 'text-slate-600'}`}>blocked</div>
+                </div>
               </div>
             </div>
           </div>
 
-          {/* Explanation for current scenario */}
-          <div className={`mt-4 p-3 bg-${modeColor}-500/5 border border-${modeColor}-500/20 rounded-lg text-sm`}>
-            {mode === 'normal' && (
+          {/* Cumulative totals */}
+          <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="bg-slate-900/30 rounded-lg p-2 text-center">
+              <div className="text-[10px] text-slate-500">Total Sent</div>
+              <div className="text-sm font-bold text-slate-300 font-mono">{incoming * currentMinute}</div>
+            </div>
+            <div className="bg-emerald-500/5 rounded-lg p-2 text-center">
+              <div className="text-[10px] text-emerald-500">Total Allowed</div>
+              <div className="text-sm font-bold text-emerald-400 font-mono">{totalAllowed}</div>
+            </div>
+            <div className={`rounded-lg p-2 text-center ${totalBlocked > 0 ? 'bg-red-500/5' : 'bg-slate-900/30'}`}>
+              <div className={`text-[10px] ${totalBlocked > 0 ? 'text-red-500' : 'text-slate-500'}`}>Total Blocked</div>
+              <div className={`text-sm font-bold font-mono ${totalBlocked > 0 ? 'text-red-400' : 'text-slate-600'}`}>{totalBlocked}</div>
+            </div>
+          </div>
+
+          {/* Narration */}
+          <div className={`p-3 bg-${color}-500/5 border border-${color}-500/20 rounded-lg text-sm`}>
+            {currentMinute === 0 && <p className="text-slate-400 italic">Press Play or click a minute to begin the simulation...</p>}
+            {current && mode === 'normal' && (
               <p className="text-emerald-300">
-                <strong>Normal user at 20 req/min:</strong> Refill is {N}/min, consumption is only 20/min.
-                Bucket gains {N - 20} tokens/min — it stays full. This user is <strong>never blocked</strong>.
+                <strong>Minute {currentMinute}:</strong> {incoming} requests arrive. Bucket refills +{N}, consumes {incoming}. Net gain of +{N - incoming} tokens/min.
+                Bucket stays at {current.bucketAfter}/{capacity}. <strong>All {current.allowed} requests pass.</strong> This user will never be rate-limited.
               </p>
             )}
-            {mode === 'burst' && (
+            {current && mode === 'burst' && !current.blocked && (
               <p className="text-amber-300">
-                <strong>Page load burst at 70 req/min:</strong> Consuming {70 - N} more tokens/min than the {N}/min refill.
-                The bucket ({capacity} tokens) can absorb ~{Math.round(capacity / ((70 - N) / 60))}s of this burst before emptying.
-                {bucketEmpty ? ' Bucket is now empty — requests are being blocked!' : ' Watch the bucket drain...'}
+                <strong>Minute {currentMinute}:</strong> {incoming} requests arrive (burst!). Bucket had {current.bucketBefore}, refilled +{current.refilled}, consumed {current.consumed}. Now at {current.bucketAfter}.
+                The burst multiplier's extra capacity is absorbing the spike — <strong>all {current.allowed} pass</strong>, but the bucket is draining fast.
               </p>
             )}
-            {mode === 'attack' && (
+            {current && mode === 'burst' && current.blocked > 0 && (
               <p className="text-red-300">
-                <strong>Attacker at 55 req/min:</strong> Draining {55 - N} tokens/min net. Bucket will empty in ~{Math.round(capacity / ((55 - N) / 60))}s.
-                {bucketEmpty ? ' BLOCKED — the attacker has been caught by the rate limiter!' : ` ${Math.round(tokens)} tokens remaining, blocking starts soon...`}
+                <strong>Minute {currentMinute}:</strong> Bucket only had {current.bucketBefore} tokens + {current.refilled} refill = {current.bucketBefore + current.refilled} available.
+                {incoming} requests tried to consume more than available. <strong>{current.allowed} allowed, {current.blocked} BLOCKED.</strong>
+                {currentMinute < TOTAL_MINUTES ? ' If this was a brief page-load burst, it would stop here and the bucket would recover.' : ''}
+              </p>
+            )}
+            {current && mode === 'attack' && !current.blocked && (
+              <p className="text-amber-300">
+                <strong>Minute {currentMinute}:</strong> Attacker sends {incoming}/min. Bucket: {current.bucketBefore} → refill +{current.refilled} → consume {current.consumed} → {current.bucketAfter} remaining.
+                Draining at {incoming - N}/min net. <strong>All pass for now</strong>, but the bucket is running out...
+              </p>
+            )}
+            {current && mode === 'attack' && current.blocked > 0 && (
+              <p className="text-red-300">
+                <strong>Minute {currentMinute}:</strong> Bucket was at {current.bucketBefore}. Even with +{current.refilled} refill, only {current.bucketBefore + current.refilled} tokens available.
+                Attacker wanted {incoming} but <strong>only {current.allowed} allowed, {current.blocked} BLOCKED!</strong>
+                The rate limiter has caught the attacker. They'll stay throttled as long as they exceed {N}/min.
               </p>
             )}
           </div>
-
-          {/* Stop button */}
-          <button onClick={() => setMode('idle')}
-            className="mt-3 text-xs text-slate-500 hover:text-slate-300 transition-colors">
-            ■ Stop & Reset
-          </button>
         </div>
       ) : (
         <div className="bg-slate-800/30 border border-dashed border-slate-700 rounded-xl p-8 text-center">
           <Droplets className="w-10 h-10 text-slate-600 mx-auto mb-3" />
-          <p className="text-slate-400 mb-1">Click a scenario above to start the simulation</p>
-          <p className="text-xs text-slate-600">Watch how the token bucket handles different traffic patterns in real time</p>
+          <p className="text-slate-400 mb-1">Click a scenario above to start the 5-minute simulation</p>
+          <p className="text-xs text-slate-600">Step through minute by minute, pause anytime, and see exactly how the token bucket handles each pattern</p>
         </div>
       )}
 
