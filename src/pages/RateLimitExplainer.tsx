@@ -481,6 +481,14 @@ export function RateLimitExplainer() {
   const navigate = useNavigate();
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+
+  useEffect(() => {
+    const calcZoom = () => setZoomLevel(Math.max(1, window.innerHeight / 700));
+    calcZoom();
+    window.addEventListener('resize', calcZoom);
+    return () => window.removeEventListener('resize', calcZoom);
+  }, []);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -523,9 +531,8 @@ export function RateLimitExplainer() {
             <button onClick={toggleFullscreen} className="p-2 text-slate-400 hover:text-slate-200 hover:bg-slate-800 rounded-lg"><Minimize2 className="w-5 h-5" /></button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto flex items-start justify-center p-6"
-          style={{ zoom: 'calc(100vh / 750)' }}>
-          <div className="w-full max-w-5xl"><SlideComponent /></div>
+        <div className="flex-1 overflow-auto p-6">
+          <div className="max-w-5xl mx-auto" style={{ zoom: zoomLevel }}><SlideComponent /></div>
         </div>
         <div className="flex items-center justify-between px-8 py-4">
           <button onClick={() => setCurrentSlide(s => Math.max(s - 1, 0))} disabled={currentSlide === 0}

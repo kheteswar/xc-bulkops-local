@@ -26,6 +26,15 @@ export function Slideshow({ slides, toolName, toolRoute, toolIcon: ToolIcon }: S
   const navigate = useNavigate();
   const [current, setCurrent] = useState(0);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [zoomLevel, setZoomLevel] = useState(1);
+
+  // Calculate zoom based on actual window height
+  useEffect(() => {
+    const calcZoom = () => setZoomLevel(Math.max(1, window.innerHeight / 700));
+    calcZoom();
+    window.addEventListener('resize', calcZoom);
+    return () => window.removeEventListener('resize', calcZoom);
+  }, []);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -75,9 +84,8 @@ export function Slideshow({ slides, toolName, toolRoute, toolIcon: ToolIcon }: S
         </div>
 
         {/* Slide — zoomed up to fill the screen */}
-        <div className="flex-1 overflow-y-auto flex items-start justify-center p-6"
-          style={{ zoom: 'calc(100vh / 750)' }}>
-          <div className="w-full max-w-5xl">
+        <div className="flex-1 overflow-auto p-6">
+          <div className="max-w-5xl mx-auto" style={{ zoom: zoomLevel }}>
             <Slide />
           </div>
         </div>
