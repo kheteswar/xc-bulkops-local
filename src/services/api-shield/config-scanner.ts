@@ -156,9 +156,10 @@ function extractSecurityConfig(
   const botDefenseEnabled = !disableBotDefense && isNonEmptyObject(botDefense);
 
   // --- DDoS Protection ---
+  // F5 XC: l7_ddos_protection even as {} means it's configured
   const l7Ddos = spec.l7_ddos_protection;
   const ddosMitRules = spec.ddos_mitigation_rules;
-  const ddosProtectionEnabled = isNonEmptyObject(l7Ddos) ||
+  const ddosProtectionEnabled = (l7Ddos != null && typeof l7Ddos === 'object') ||
     (Array.isArray(ddosMitRules) && ddosMitRules.length > 0);
 
   // --- Slow DDoS ---
@@ -167,12 +168,16 @@ function extractSecurityConfig(
     (slowDdos?.request_headers_timeout !== undefined || slowDdos?.request_timeout !== undefined);
 
   // --- Rate Limiting ---
+  // F5 XC uses disable_rate_limit: {} when disabled, rate_limiter/rate_limit when enabled
   const rateLimiter = spec.rate_limiter;
   const apiRateLimit = spec.api_rate_limit;
   const rateLimit = spec.rate_limit;
-  const rateLimitEnabled = isNonEmptyObject(rateLimiter) ||
+  const rateLimitDisabled = spec.disable_rate_limit !== undefined;
+  const rateLimitEnabled = !rateLimitDisabled && (
+    isNonEmptyObject(rateLimiter) ||
     isNonEmptyObject(apiRateLimit) ||
-    isNonEmptyObject(rateLimit);
+    isNonEmptyObject(rateLimit)
+  );
 
   // --- Service Policies ---
   const servicePolicies: string[] = [];
@@ -217,17 +222,21 @@ function extractSecurityConfig(
   const sensitiveDataDiscoveryEnabled = sensitiveDataPolicy !== undefined && sensitiveDataPolicy !== null;
 
   // --- Malicious User Detection ---
-  // F5 XC: presence of enable_malicious_user_detection key = enabled
-  const maliciousUserDetectionEnabled = spec.enable_malicious_user_detection !== undefined ||
-    isNonEmptyObject(spec.malicious_user_mitigation);
+  // F5 XC: disable_malicious_user_detection: {} = disabled, enable_malicious_user_detection = enabled
+  const maliciousUserDetectionEnabled =
+    spec.disable_malicious_user_detection === undefined &&
+    (spec.enable_malicious_user_detection !== undefined ||
+     isNonEmptyObject(spec.malicious_user_mitigation));
 
   // --- IP Reputation ---
   // F5 XC: presence of enable_ip_reputation key = enabled
   const ipReputationEnabled = spec.enable_ip_reputation !== undefined;
 
   // --- User Identification ---
+  // F5 XC: user_id_client_ip: {} (basic), user_identification: {ref} (advanced), user_id_policy (custom)
   const userIdentificationEnabled = isNonEmptyRef(spec.user_identification) ||
-    isNonEmptyObject(spec.user_id_policy);
+    isNonEmptyObject(spec.user_id_policy) ||
+    spec.user_id_client_ip !== undefined;
 
   // --- Domains ---
   const rawDomains = spec.domains as string[] | undefined;

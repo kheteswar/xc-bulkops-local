@@ -27,7 +27,6 @@ export type ControlDomainId =
   | 'access_control'
   | 'sensitive_data'
   | 'threat_detection'
-  | 'devops'
   | 'monitoring';
 
 export interface ControlDomainMeta {
@@ -724,78 +723,7 @@ const threatDetectionControls: SecurityControl[] = [
 ];
 
 // ═════════════════════════════════════════════════════════════════
-// Domain 10: DevOps Integration
-// ═════════════════════════════════════════════════════════════════
-
-const devopsControls: SecurityControl[] = [
-  ctrl(
-    'devops_terraform',
-    'Terraform Provider Integration',
-    'Use the F5 XC Terraform provider to define API security configurations as code for repeatable deployments.',
-    'advanced',
-    'medium',
-    ['API8', 'API9'],
-  ),
-  ctrl(
-    'devops_ci_cd_spec_upload',
-    'CI/CD OpenAPI Spec Upload',
-    'Integrate OpenAPI spec upload into CI/CD pipelines to automatically update API definitions on deployment.',
-    'advanced',
-    'medium',
-    ['API8', 'API9'],
-  ),
-  ctrl(
-    'devops_gitops',
-    'GitOps Configuration Management',
-    'Store all API security configurations in Git and use GitOps workflows for change management and audit trails.',
-    'advanced',
-    'medium',
-    ['API9'],
-  ),
-  ctrl(
-    'devops_api_security_testing',
-    'API Security Testing in Pipeline',
-    'Integrate API security testing tools (DAST, SAST) into CI/CD pipelines to detect vulnerabilities before deployment.',
-    'advanced',
-    'medium',
-    ['API8', 'API9'],
-  ),
-  ctrl(
-    'devops_policy_as_code',
-    'Policy-as-Code',
-    'Define service policies, WAF exclusions, and rate limits as code artifacts managed alongside application code.',
-    'advanced',
-    'low',
-    ['API8'],
-  ),
-  ctrl(
-    'devops_environment_promotion',
-    'Environment Promotion Workflow',
-    'Establish promotion workflows (dev > staging > prod) for API security configurations with validation gates.',
-    'advanced',
-    'low',
-    ['API9'],
-  ),
-  ctrl(
-    'devops_vesctl_automation',
-    'vesctl CLI Automation',
-    'Use vesctl CLI for scripted configuration management, batch updates, and automated policy deployment.',
-    'advanced',
-    'medium',
-    ['API8', 'API9'],
-  ),
-  ctrl(
-    'devops_config_drift_detection',
-    'Configuration Drift Detection',
-    'Monitor for configuration drift between declared state and actual deployed configurations across environments.',
-    'advanced',
-    'medium',
-    ['API8', 'API9'],
-  ),
-];
-
-// ═════════════════════════════════════════════════════════════════
-// Domain 11: Monitoring & Alerting
+// Domain 10: Monitoring & Alerting
 // ═════════════════════════════════════════════════════════════════
 
 const monitoringControls: SecurityControl[] = [
@@ -895,7 +823,6 @@ const ALL_CONTROLS: SecurityControl[] = [
   ...accessControlControls,
   ...sensitiveDataControls,
   ...threatDetectionControls,
-  ...devopsControls,
   ...monitoringControls,
 ];
 
@@ -967,13 +894,6 @@ export const CONTROL_DOMAINS: ControlDomainMeta[] = [
     description: 'Malicious user detection, IP reputation, Threat Mesh, and user tracking',
     icon: 'AlertTriangle',
     controlIds: threatDetectionControls.map((c) => c.id),
-  },
-  {
-    id: 'devops',
-    name: 'DevOps Integration',
-    description: 'CI/CD integration, Terraform, GitOps, and automated security deployment',
-    icon: 'GitBranch',
-    controlIds: devopsControls.map((c) => c.id),
   },
   {
     id: 'monitoring',
@@ -1079,7 +999,6 @@ export const OWASP_API_TOP_10: Array<{
       'schema_oas_upload', 'schema_request_validation', 'schema_custom_rules',
       'access_cors_policy',
       'threat_ip_reputation', 'threat_mesh', 'threat_ip_categories',
-      'devops_terraform', 'devops_ci_cd_spec_upload', 'devops_policy_as_code',
       'discovery_sensitive_data',
       'schema_version_management',
     ],
@@ -1096,8 +1015,6 @@ export const OWASP_API_TOP_10: Array<{
       'monitor_alert_receivers', 'monitor_security_event_logging',
       'monitor_api_traffic_anomalies', 'monitor_compliance_reporting',
       'monitor_incident_response_plan',
-      'devops_gitops', 'devops_ci_cd_spec_upload', 'devops_api_security_testing',
-      'devops_environment_promotion',
     ],
   },
   {
