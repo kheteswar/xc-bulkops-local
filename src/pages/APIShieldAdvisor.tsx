@@ -324,6 +324,34 @@ export function APIShieldAdvisor() {
       {/* Results */}
       {results && (
         <div className="space-y-6">
+          {/* Report header with namespace and LB details */}
+          <div className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 flex items-center justify-between">
+            <div className="flex items-center gap-6">
+              <div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Namespace</div>
+                <div className="text-sm font-semibold text-slate-100 font-mono">{results.namespace}</div>
+              </div>
+              <div className="w-px h-8 bg-slate-700" />
+              <div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Load Balancer{results.lbNames.length > 1 ? 's' : ''}</div>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  {results.lbNames.map(lb => (
+                    <span key={lb} className="px-2 py-0.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded text-xs font-mono">{lb}</span>
+                  ))}
+                </div>
+              </div>
+              <div className="w-px h-8 bg-slate-700" />
+              <div>
+                <div className="text-[10px] text-slate-500 uppercase tracking-wider">Scan Depth</div>
+                <div className="text-sm text-slate-300 capitalize">{results.depth}</div>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 bg-slate-900/50 rounded-lg px-3 py-1.5">
+              <div className="text-[10px] text-slate-500">Score</div>
+              <div className={`text-xl font-bold ${results.overallScore >= 70 ? 'text-emerald-400' : results.overallScore >= 40 ? 'text-amber-400' : 'text-red-400'}`}>{results.overallScore}</div>
+            </div>
+          </div>
+
           <div className="flex items-center gap-1 overflow-x-auto pb-1">
             <TabBtn active={tab === 'overview'} onClick={() => setTab('overview')} icon={Eye} label="Overview" />
             <TabBtn active={tab === 'domains'} onClick={() => setTab('domains')} icon={Target} label="Domain Guide" />
