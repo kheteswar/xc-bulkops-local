@@ -31,18 +31,26 @@ function TokenBucketDemo() {
   const incoming = mode === 'normal' ? 20 : mode === 'burst' ? 70 : mode === 'attack' ? 55 : 0;
 
   // Pre-compute all 5 minutes of the simulation
+  // Token bucket model per minute:
+  //   1. Bucket starts at `before` tokens
+  //   2. N tokens refill during the minute (capped at capacity)
+  //   3. `incoming` requests arrive and each consumes 1 token
+  //   4. available = min(before + N, capacity)
+  //   5. allowed = min(incoming, available)
+  //   6. blocked = incoming - allowed
+  //   7. bucket after = available - allowed
   const minutes: MinuteLog[] = (() => {
     if (mode === 'idle') return [];
     const log: MinuteLog[] = [];
-    let bucket = capacity;
+    let bucket = capacity; // starts full
     for (let m = 1; m <= TOTAL_MINUTES; m++) {
       const before = bucket;
-      const refilled = Math.min(N, capacity - bucket); // tokens added (capped at capacity)
-      bucket = Math.min(bucket + N, capacity);          // refill first
-      const consumed = Math.min(incoming, bucket);       // then consume
-      const blocked = Math.max(0, incoming - bucket);
-      bucket = Math.max(0, bucket - incoming);
-      log.push({ minute: m, incoming, refilled: Math.round(refilled), consumed: Math.round(consumed), bucketBefore: Math.round(before), bucketAfter: Math.round(bucket), allowed: Math.round(consumed), blocked: Math.round(blocked) });
+      const available = Math.min(before + N, capacity); // refill capped at capacity
+      const refilled = available - before;               // actual tokens added
+      const allowed = Math.min(incoming, available);      // serve what we can
+      const blocked = incoming - allowed;                 // reject the rest
+      bucket = available - allowed;                       // remaining after serving
+      log.push({ minute: m, incoming, refilled, consumed: allowed, bucketBefore: before, bucketAfter: bucket, allowed, blocked });
     }
     return log;
   })();
@@ -98,23 +106,27 @@ function TokenBucketDemo() {
         ))}
       </div>
 
-      {/* Config bar */}
-      <div className="flex items-center gap-4 mb-5 text-xs">
-        <div className="flex items-center gap-2 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
-          <span className="text-slate-500">Rate Limit (N):</span>
-          <span className="font-bold text-blue-400 font-mono">{N}/min</span>
+      {/* Config bar — full width tiles */}
+      <div className="grid grid-cols-4 gap-3 mb-5">
+        <div className="bg-slate-800/50 border border-blue-500/20 rounded-xl p-4 text-center">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Rate Limit (N)</div>
+          <div className="text-2xl font-bold text-blue-400 font-mono">{N}</div>
+          <div className="text-xs text-slate-500">req/min</div>
         </div>
-        <div className="flex items-center gap-2 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
-          <span className="text-slate-500">Burst (B):</span>
-          <span className="font-bold text-amber-400 font-mono">{B}×</span>
+        <div className="bg-slate-800/50 border border-amber-500/20 rounded-xl p-4 text-center">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Burst (B)</div>
+          <div className="text-2xl font-bold text-amber-400 font-mono">{B}×</div>
+          <div className="text-xs text-slate-500">multiplier</div>
         </div>
-        <div className="flex items-center gap-2 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
-          <span className="text-slate-500">Bucket Capacity:</span>
-          <span className="font-bold text-emerald-400 font-mono">{capacity} tokens</span>
+        <div className="bg-slate-800/50 border border-emerald-500/20 rounded-xl p-4 text-center">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Bucket Capacity</div>
+          <div className="text-2xl font-bold text-emerald-400 font-mono">{capacity}</div>
+          <div className="text-xs text-slate-500">N × B = {N} × {B}</div>
         </div>
-        <div className="flex items-center gap-2 bg-slate-800/50 border border-slate-700 rounded-lg px-3 py-2">
-          <span className="text-slate-500">Refill:</span>
-          <span className="font-bold text-emerald-400 font-mono">+{N} tokens/min</span>
+        <div className="bg-slate-800/50 border border-emerald-500/20 rounded-xl p-4 text-center">
+          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Refill Rate</div>
+          <div className="text-2xl font-bold text-emerald-400 font-mono">+{N}</div>
+          <div className="text-xs text-slate-500">tokens/min</div>
         </div>
       </div>
 
